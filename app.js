@@ -140,7 +140,7 @@ async function loadSeasonal(season, year, page = 1) {
     if (page === 1) seasonalData.results = results;
     else seasonalData.results = [...seasonalData.results, ...results];
     seasonalData.page = page;
-  } catch (e) { seasonalData.error = "Failed to load seasonal."; }
+  } catch (e) { seasonalData.error = e.message; console.error("loadSeasonal:", e); }
   seasonalData.loading = false; renderContent();
 }
 
@@ -150,11 +150,27 @@ const TRENDING_QUERY = `query($page:Int,$perPage:Int){Page(page:$page,perPage:$p
 const POPULAR_QUERY = `query($page:Int,$perPage:Int){Page(page:$page,perPage:$perPage){media(type:ANIME,sort:POPULARITY_DESC){id idMal title{romaji english native}coverImage{large}episodes duration status averageScore genres season year format description startDate{year month day}}}}`;
 const SEASONAL_QUERY = `query($page:Int,$perPage:Int,$season:MediaSeason,$year:Int){Page(page:$page,perPage:$perPage){media(type:ANIME,season:$season,seasonYear:$year,sort:POPULARITY_DESC){id idMal title{romaji english native}coverImage{large}episodes duration status averageScore genres season year format description startDate{year month day}}}}`;
 
-function anilistFetch(query, vars) {
-  return fetch(ANILIST_API, {
-    method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ query, variables: vars })
-  }).then(r => r.json()).then(d => d.data?.Page?.media || []);
+async function anilistFetch(query, vars, timeoutMs = 10000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(ANILIST_API, {
+      method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ query, variables: vars }),
+      signal: controller.signal
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      const msg = body?.errors?.[0]?.message || `HTTP ${res.status}`;
+      throw new Error(msg);
+    }
+    return await res.json().then(d => d.data?.Page?.media || []);
+  } catch (e) {
+    if (e.name === "AbortError") throw new Error("Request timed out");
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function searchAnime(query) {
@@ -172,7 +188,7 @@ async function loadBrowse(mode, page = 1) {
     if (page === 1) browseData.results = results;
     else browseData.results = [...browseData.results, ...results];
     browseData.page = page;
-  } catch (e) { browseData.error = "Failed to load. Try again."; }
+  } catch (e) { browseData.error = e.message; console.error("loadBrowse:", e); }
   browseData.loading = false; renderContent();
 }
 
@@ -318,7 +334,7 @@ function renderSeasonal() {
   const s = seasonalData.season || curSeason;
   const y = seasonalData.year || curYear;
   const years = [curYear, curYear - 1, curYear + 1];
-  return `<div class="section">
+  return `<div class="section section--seasonal">
     <div class="browse-controls">
       <div class="chip-group">
         ${SEASONS.map(season => `<button class="chip ${s === season ? "is-active" : ""}" data-action="seasonal-mode" data-season="${season}" data-year="${y}">${season}</button>`).join("")}
@@ -412,7 +428,7 @@ function handleSearchInput(value) {
       const data = await searchAnime(value);
       if (data.length === 0) { results.innerHTML = `<div class="empty-state"><div class="empty-state__title">No results for "${escapeHtml(value)}"</div></div>`; return; }
       results.innerHTML = `<div class="grid">${data.map(renderCard).join("")}</div>`;
-    } catch { results.innerHTML = `<div class="empty-state"><div class="empty-state__title">Search failed. Try again.</div></div>`; }
+    } catch (e) { results.innerHTML = `<div class="empty-state"><div class="empty-state__title">Search failed</div><div class="empty-state__text">${escapeHtml(e.message)}</div></div>`; }
   }, 400);
 }
 
@@ -663,6 +679,10 @@ function openWatchView(id) {
   entry.lastWatched = Date.now();
   saveData();
   currentTab = "watch";
+  const hero = document.getElementById("hero");
+  const app = document.getElementById("app");
+  if (hero) hero.style.display = "none";
+  if (app) app.style.paddingTop = "calc(var(--nav-height) + 16px)";
   renderContent();
 }
 
@@ -730,13 +750,21 @@ document.addEventListener("click", e => {
 
   if (action === "tab") {
     currentTab = target.dataset.tab;
+    const hero = document.getElementById("hero");
+    const app = document.getElementById("app");
+    if (currentTab === "home") {
+      if (hero) hero.style.display = "flex";
+      if (app) app.style.paddingTop = "0";
+    } else {
+      if (hero) hero.style.display = "none";
+      if (app) app.style.paddingTop = "calc(var(--nav-height) + 16px)";
+    }
+    renderContent();
     if (currentTab === "browse" && !browseData.results.length && !browseData.loading) loadBrowse(browseData.mode);
     if (currentTab === "seasonal" && !seasonalData.results.length && !seasonalData.loading) {
       loadSeasonal(seasonalData.season || getCurrentSeason(), seasonalData.year || new Date().getFullYear());
     }
-    if (currentTab === "search") { renderContent(); const inp = document.getElementById("searchPageInput"); if (inp) inp.focus(); }
-    else renderContent();
-    document.getElementById("hero")?.style.setProperty("display", currentTab === "home" ? "flex" : "none");
+    if (currentTab === "search") { const inp = document.getElementById("searchPageInput"); if (inp) inp.focus(); }
   }
 
   if (action === "browse-mode") {
@@ -802,6 +830,7 @@ document.addEventListener("click", e => {
     currentTab = "home";
     renderContent();
     document.getElementById("hero")?.style.setProperty("display", "flex");
+    document.getElementById("app")?.style.setProperty("padding-top", "0");
   }
 
   if (action === "next-episode") {
@@ -949,5 +978,8 @@ document.getElementById("mobileSearchBtn")?.addEventListener("click", () => {
 /* ══ INIT ═══════════════════════════════════════════════════════ */
 loadData();
 renderContent();
+if (location.protocol === "file:") {
+  showToast("Open via HTTP server (npx serve .) for API access", "error");
+}
 if (!browseData.results.length) loadBrowse("trending");
 initAnikotoCache();
