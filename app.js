@@ -182,10 +182,7 @@ async function loadSeasonal(season, year, page = 1) {
 }
 
 /* ══ ANILIST API ═══════════════════════════════════════════════ */
-const SEARCH_QUERY = `query($search:String,$page:Int,$perPage:Int){Page(page:$page,perPage:$perPage){media(search:$search,type:ANIME,sort:POPULARITY_DESC){id idMal title{romaji english native}coverImage{large}episodes duration status averageScore genres season year format description startDate{year month day}}}}`;
-const TRENDING_QUERY = `query($page:Int,$perPage:Int){Page(page:$page,perPage:$perPage){media(type:ANIME,sort:TRENDING_DESC){id idMal title{romaji english native}coverImage{large}episodes duration status averageScore genres season year format description startDate{year month day}}}}`;
-const POPULAR_QUERY = `query($page:Int,$perPage:Int){Page(page:$page,perPage:$perPage){media(type:ANIME,sort:POPULARITY_DESC){id idMal title{romaji english native}coverImage{large}episodes duration status averageScore genres season year format description startDate{year month day}}}}`;
-const SEASONAL_QUERY = `query($page:Int,$perPage:Int,$season:MediaSeason,$year:Int){Page(page:$page,perPage:$perPage){media(type:ANIME,season:$season,seasonYear:$year,sort:POPULARITY_DESC){id idMal title{romaji english native}coverImage{large}episodes duration status averageScore genres season year format description startDate{year month day}}}}`;
+const SEARCH_QUERY = `query($search:String,$page:Int,$perPage:Int){Page(page:$page,perPage:$perPage){media(search:$search,type:ANIME,sort:POPULARITY_DESC){id idMal title{romaji english native}coverImage{large}episodes duration status averageScore genres season seasonYear format description startDate{year month day}}}}`;
 
 async function anilistFetch(query, vars, timeoutMs = 10000) {
   const controller = new AbortController();
@@ -638,7 +635,7 @@ function renderDetailOverlay(anime) {
       <div style="flex:1">
         <div class="overlay-card__title">${escapeHtml(title)}</div>
         <div style="font-size:var(--text-sm);color:rgba(255,255,255,0.5);margin-bottom:var(--space-2)">
-          ${anime.episodes ? `${anime.episodes} eps` : ""}${anime.averageScore ? ` • ${anime.averageScore}%` : ""}${anime.year ? ` • ${anime.year}` : ""}
+          ${anime.episodes ? `${anime.episodes} eps` : ""}${anime.averageScore ? ` • ${anime.averageScore}%` : ""}${(anime.seasonYear || anime.year) ? ` • ${anime.seasonYear || anime.year}` : ""}
         </div>
         <div style="display:flex;gap:var(--space-2);flex-wrap:wrap">
           ${(anime.genres || []).slice(0, 3).map(g => `<span style="padding:2px 10px;border-radius:12px;background:var(--glass-bg);border:1px solid var(--glass-border);font-size:var(--text-xs)">${escapeHtml(g)}</span>`).join("")}
