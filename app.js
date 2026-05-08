@@ -6,6 +6,8 @@ let browseData = { results: [], loading: false, error: null, page: 0, mode: "tre
 let seasonalData = { results: [], loading: false, error: null, page: 0, season: null, year: null };
 let currentWatchId = null;
 let currentEpisode = 1;
+let searchResults = [];
+let pendingSearchQuery = "";
 const ANILIST_API = "https://graphql.anilist.co";
 
 /* ══ PROVIDERS ════════════════════════════════════════════════ */
@@ -270,8 +272,8 @@ function afterRender() {
       if (e.key === "ArrowLeft") { e.preventDefault(); t.scrollBy({ left: -200, behavior: "smooth" }); }
     });
   });
-  if (currentTab === "browse" && !browseData.results.length && !browseData.loading) loadBrowse("trending");
-  if (currentTab === "seasonal" && !seasonalData.results.length && !seasonalData.loading) {
+  if (currentTab === "browse" && !browseData.results.length && !browseData.loading && !browseData.error) loadBrowse("trending");
+  if (currentTab === "seasonal" && !seasonalData.results.length && !seasonalData.loading && !seasonalData.error) {
     loadSeasonal(seasonalData.season || getCurrentSeason(), seasonalData.year || new Date().getFullYear());
   }
   if (currentTab === "search") {
@@ -448,8 +450,9 @@ function renderBrowse() {
 
 /* ══ SEARCH ════════════════════════════════════════════════════ */
 function renderSearch() {
+  const val = escapeHtml(pendingSearchQuery);
   return `<div class="search-page section">
-    <input type="search" id="searchPageInput" class="search-input--page" placeholder="Search anime..." autocomplete="off" aria-label="Search">
+    <input type="search" id="searchPageInput" class="search-input--page" placeholder="Search anime..." value="${val}" autocomplete="off" aria-label="Search">
     <div id="searchResults"></div>
   </div>`;
 }
@@ -463,6 +466,7 @@ function handleSearchInput(value) {
   searchTimer = setTimeout(async () => {
     try {
       const data = await searchAnime(value);
+      searchResults = data;
       if (data.length === 0) { results.innerHTML = `<div class="empty-state"><div class="empty-state__title">No results for "${escapeHtml(value)}"</div></div>`; return; }
       results.innerHTML = `<div class="grid">${data.map(renderCard).join("")}</div>`;
     } catch (e) { results.innerHTML = `<div class="empty-state"><div class="empty-state__title">Search failed</div><div class="empty-state__text">${escapeHtml(e.message)}</div></div>`; }
@@ -682,7 +686,7 @@ function setRating(id, stars) {
   entry.rating = entry.rating === newRating ? 0 : newRating;
   saveData();
   showToast(entry.rating > 0 ? `Rated ${entry.rating}/10` : "Rating removed", "success");
-  const anime = anilistCache[id] || browseData.results.find(r => String(r.id) === String(id));
+  const anime = anilistCache[id] || browseData.results.find(r => String(r.id) === String(id)) || searchResults.find(r => String(r.id) === String(id));
   if (anime) showOverlay(renderDetailOverlay(anime));
   if (currentTab === "library") renderContent();
 }
@@ -797,11 +801,14 @@ document.addEventListener("click", e => {
       if (app) app.style.paddingTop = "calc(var(--nav-height) + 16px)";
     }
     renderContent();
-    if (currentTab === "browse" && !browseData.results.length && !browseData.loading) loadBrowse(browseData.mode);
-    if (currentTab === "seasonal" && !seasonalData.results.length && !seasonalData.loading) {
+    if (currentTab === "browse" && !browseData.results.length && !browseData.loading && !browseData.error) loadBrowse(browseData.mode);
+    if (currentTab === "seasonal" && !seasonalData.results.length && !seasonalData.loading && !seasonalData.error) {
       loadSeasonal(seasonalData.season || getCurrentSeason(), seasonalData.year || new Date().getFullYear());
     }
-    if (currentTab === "search") { const inp = document.getElementById("searchPageInput"); if (inp) inp.focus(); }
+    if (currentTab === "search") {
+      const inp = document.getElementById("searchPageInput");
+      if (inp) inp.focus();
+    }
   }
 
   if (action === "browse-mode") {
@@ -841,7 +848,7 @@ document.addEventListener("click", e => {
     try { anime = JSON.parse(target.dataset.source); } catch { anime = null; }
     if (!anime) {
       const id = target.dataset.id;
-      const found = browseData.results.find(r => String(r.id) === id) || anilistCache[id];
+      const found = browseData.results.find(r => String(r.id) === id) || searchResults.find(r => String(r.id) === id) || anilistCache[id];
       if (found) anime = found;
     }
     if (!anime) { showToast("Could not load details.", "error"); return; }
@@ -853,7 +860,7 @@ document.addEventListener("click", e => {
 
   if (action === "add-to-library") {
     const id = target.dataset.id;
-    const anime = anilistCache[id] || browseData.results.find(r => String(r.id) === id);
+    const anime = anilistCache[id] || browseData.results.find(r => String(r.id) === id) || searchResults.find(r => String(r.id) === id);
     if (anime) { addToLibrary(anime); hideOverlay(); }
   }
 
@@ -941,14 +948,16 @@ document.addEventListener("click", e => {
 /* ══ INPUT HANDLING ══════════════════════════════════════════════ */
 document.addEventListener("input", e => {
   if (e.target.id === "globalSearch" || e.target.id === "searchPageInput") {
+    const val = e.target.value;
     if (currentTab !== "search") {
+      pendingSearchQuery = val;
       currentTab = "search";
       renderContent();
       document.getElementById("hero")?.style.setProperty("display", "none");
-      const inp = document.getElementById("searchPageInput");
-      if (inp) { inp.value = e.target.value; inp.focus(); }
+    } else {
+      pendingSearchQuery = val;
     }
-    handleSearchInput(e.target.value);
+    handleSearchInput(val);
   }
 });
 
@@ -973,8 +982,8 @@ document.addEventListener("keydown", e => {
   }
 
   if (e.key === "1" && !e.target.closest("input,textarea")) { e.preventDefault(); currentTab = "home"; renderContent(); updateNavActive(); document.getElementById("hero")?.style.setProperty("display", "flex"); }
-  if (e.key === "2" && !e.target.closest("input,textarea")) { e.preventDefault(); currentTab = "browse"; renderContent(); if (!browseData.results.length && !browseData.loading) loadBrowse(browseData.mode); document.getElementById("hero")?.style.setProperty("display", "none"); }
-  if (e.key === "3" && !e.target.closest("input,textarea")) { e.preventDefault(); currentTab = "seasonal"; renderContent(); if (!seasonalData.results.length && !seasonalData.loading) loadSeasonal(seasonalData.season || getCurrentSeason(), seasonalData.year || new Date().getFullYear()); document.getElementById("hero")?.style.setProperty("display", "none"); }
+  if (e.key === "2" && !e.target.closest("input,textarea")) { e.preventDefault(); currentTab = "browse"; renderContent(); if (!browseData.results.length && !browseData.loading && !browseData.error) loadBrowse(browseData.mode); document.getElementById("hero")?.style.setProperty("display", "none"); }
+  if (e.key === "3" && !e.target.closest("input,textarea")) { e.preventDefault(); currentTab = "seasonal"; renderContent(); if (!seasonalData.results.length && !seasonalData.loading && !seasonalData.error) loadSeasonal(seasonalData.season || getCurrentSeason(), seasonalData.year || new Date().getFullYear()); document.getElementById("hero")?.style.setProperty("display", "none"); }
   if (e.key === "4" && !e.target.closest("input,textarea")) { e.preventDefault(); currentTab = "library"; renderContent(); document.getElementById("hero")?.style.setProperty("display", "none"); }
 
   if (e.key === "w" && currentWatchId && !e.target.closest("input,textarea")) {
