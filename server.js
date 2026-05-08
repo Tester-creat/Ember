@@ -42,13 +42,19 @@ function proxyAnikoto(req, res) {
   const proxyReq = https.get(url, { headers: { "User-Agent": "Mozilla/5.0" } }, (proxyRes) => {
     const chunks = [];
     proxyRes.on("data", (chunk) => chunks.push(chunk));
+    proxyRes.on("error", () => {
+      res.writeHead(502, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, message: "Proxy response error" }));
+    });
     proxyRes.on("end", () => {
       const body = Buffer.concat(chunks);
+      const safeHeaders = { ...proxyRes.headers };
+      delete safeHeaders["transfer-encoding"];
+      delete safeHeaders["connection"];
+      delete safeHeaders["keep-alive"];
       res.writeHead(proxyRes.statusCode, {
-        ...proxyRes.headers,
+        ...safeHeaders,
         "access-control-allow-origin": "*",
-        "access-control-allow-methods": "GET, POST, OPTIONS",
-        "access-control-allow-headers": "Content-Type",
       });
       res.end(body);
     });
@@ -56,13 +62,21 @@ function proxyAnikoto(req, res) {
 
   proxyReq.on("error", () => {
     res.writeHead(502, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ ok: false, message: "Proxy error" }));
+    res.end(JSON.stringify({ ok: false, message: "Proxy connection error" }));
   });
-
-  proxyReq.end();
 }
 
 const server = http.createServer((req, res) => {
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, {
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "GET, POST, OPTIONS",
+      "access-control-allow-headers": "Content-Type",
+      "access-control-max-age": "86400",
+    });
+    res.end();
+    return;
+  }
   if (req.url.startsWith("/api/anikoto/")) {
     proxyAnikoto(req, res);
   } else {

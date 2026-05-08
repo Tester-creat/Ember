@@ -103,16 +103,26 @@ async function preloadEpisodeUrls(anilistId) {
   try {
     const res = await fetch(`/api/anikoto/series/${anikotoId}`);
     const data = await res.json();
-    if (data.ok && data.data?.episodes) {
-      let hasDub = false;
-      data.data.episodes.forEach(ep => {
-        if (ep.embed_url?.sub) episodeEmbedCache[`${anilistId}-${ep.number}-sub`] = ep.embed_url.sub;
-        if (ep.embed_url?.dub) {
-          episodeEmbedCache[`${anilistId}-${ep.number}-dub`] = ep.embed_url.dub;
-          hasDub = true;
+    if (data.ok && data.data) {
+      if (data.data.anime?.episodes) {
+        const entry = getEntry(anilistId);
+        const apiTotal = Number(data.data.anime.episodes);
+        if (entry && apiTotal > (entry.episodes || 0)) {
+          entry.episodes = apiTotal;
+          saveData();
         }
-      });
-      dubAvailable[String(anilistId)] = hasDub;
+      }
+      if (data.data.episodes) {
+        let hasDub = false;
+        data.data.episodes.forEach(ep => {
+          if (ep.embed_url?.sub) episodeEmbedCache[`${anilistId}-${ep.number}-sub`] = ep.embed_url.sub;
+          if (ep.embed_url?.dub) {
+            episodeEmbedCache[`${anilistId}-${ep.number}-dub`] = ep.embed_url.dub;
+            hasDub = true;
+          }
+        });
+        dubAvailable[String(anilistId)] = hasDub;
+      }
     }
   } catch {}
 }
@@ -727,6 +737,7 @@ async function openWatchView(id) {
   entry.lastWatched = Date.now();
   saveData();
   await preloadEpisodeUrls(entry.anilistId);
+  currentEpisode = Math.min(currentEpisode, entry.episodes || 1);
   currentTab = "watch";
   const hero = document.getElementById("hero");
   const app = document.getElementById("app");
