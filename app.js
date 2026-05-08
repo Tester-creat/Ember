@@ -13,6 +13,7 @@ const ANILIST_API = "https://graphql.anilist.co";
 /* ══ PROVIDERS ════════════════════════════════════════════════ */
 const episodeEmbedCache = {};
 const anikotoIdCache = {};
+const dubAvailable = {};
 
 const STREAM_PROVIDERS = [
   { name: "MegaPlay", active: true, idType: "anikoto",
@@ -25,6 +26,7 @@ const STREAM_PROVIDERS = [
     notes: "Direct AniList ID embed. Reliable synchronous fallback." },
 ];
 let currentProvider = 0;
+let currentLanguage = "sub";
 let streamFallbackTimer = null;
 
 /* ══ ANIKOTO API ═══════════════════════════════════════════════ */
@@ -73,7 +75,7 @@ async function initAnikotoCache() {
 async function findAnikotoId(anilistId) {
   const cached = anikotoIdCache[String(anilistId)];
   if (cached) return cached;
-  for (let page = 1; page <= 3; page++) {
+  for (let page = 1; page <= 20; page++) {
     try {
       const res = await fetch(`https://anikotoapi.site/recent-anime?page=${page}&per_page=50`);
       const data = await res.json();
@@ -103,10 +105,15 @@ async function preloadEpisodeUrls(anilistId) {
     const res = await fetch(`https://anikotoapi.site/series/${anikotoId}`);
     const data = await res.json();
     if (data.ok && data.data?.episodes) {
+      let hasDub = false;
       data.data.episodes.forEach(ep => {
         if (ep.embed_url?.sub) episodeEmbedCache[`${anilistId}-${ep.number}-sub`] = ep.embed_url.sub;
-        if (ep.embed_url?.dub) episodeEmbedCache[`${anilistId}-${ep.number}-dub`] = ep.embed_url.dub;
+        if (ep.embed_url?.dub) {
+          episodeEmbedCache[`${anilistId}-${ep.number}-dub`] = ep.embed_url.dub;
+          hasDub = true;
+        }
       });
+      dubAvailable[String(anilistId)] = hasDub;
     }
   } catch {}
 }
@@ -516,20 +523,24 @@ function renderWatch() {
   const entry = getEntry(currentWatchId);
   if (!entry) return `<div class="empty-state"><div class="empty-state__title">Title not found</div></div>`;
   const totalEps = entry.episodes || 1;
-  const url = buildStreamUrl(entry, currentEpisode, entry.language || "sub", currentProvider);
+  const url = buildStreamUrl(entry, currentEpisode, currentLanguage, currentProvider);
   const provider = STREAM_PROVIDERS[currentProvider];
   const hasStream = !!url;
+  const canDub = dubAvailable[String(entry.anilistId)] !== false;
+  const langLabel = currentLanguage === "sub" ? "Sub" : "Dub";
+  const langIcon = currentLanguage === "sub" ? "SUB" : "DUB";
   return `<div class="section">
     <div class="watch-layout">
       <div>
         <div class="watch-player">${hasStream ? `<iframe data-watch-iframe src="${escapeHtml(url)}" allow="autoplay; fullscreen" allowfullscreen></iframe>` : `<div class="empty-state"><div class="empty-state__title">No stream available</div><div class="empty-state__text">Try switching providers or check back later.</div></div>`}</div>
         <div class="watch-meta">
           <div class="watch-meta__title">${escapeHtml(getDisplayTitle(entry))}</div>
-          <div class="watch-meta__info">Episode ${currentEpisode} of ${totalEps}</div>
+          <div class="watch-meta__info">Episode ${currentEpisode} of ${totalEps} &middot; ${langLabel}</div>
         </div>
         <div class="watch-actions">
           <button class="btn btn--sm btn--glass" data-action="prev-episode" ${currentEpisode <= 1 ? "disabled" : ""}>&#9664; Prev</button>
           <button class="btn btn--sm btn--glass" data-action="next-episode" ${currentEpisode >= totalEps ? "disabled" : ""}>Next &#9654;</button>
+          ${canDub ? `<button class="btn btn--sm btn--glass ${currentLanguage === "dub" ? "is-active" : ""}" data-action="toggle-language">${langIcon}</button>` : ""}
           <button class="btn btn--sm btn--amber" data-action="switch-provider">Provider: ${provider.name}</button>
           <button class="btn btn--sm btn--glass" data-action="mark-watched" data-id="${entry.id}">&#10003; Mark Watched</button>
           <button class="btn btn--sm btn--glass" data-action="close-watch">&times; Close</button>
@@ -743,6 +754,7 @@ async function openWatchView(id) {
   currentWatchId = id;
   currentEpisode = Math.min((entry.episodesWatched || 0) + 1, entry.episodes || 1);
   currentProvider = 0;
+  currentLanguage = entry.language || "sub";
   entry.status = "watching";
   entry.lastWatched = Date.now();
   saveData();
@@ -791,6 +803,7 @@ const SHORTCUTS = [
   { key: "1-4", desc: "Switch tabs (Home, Browse, Seasonal, Library)" },
   { key: "/", desc: "Focus search" },
   { key: "W", desc: "Switch streaming provider (on watch page)" },
+  { key: "L", desc: "Toggle Sub/Dub audio (on watch page)" },
   { key: "Esc", desc: "Close overlay / modal" },
   { key: "← →", desc: "Navigate episode list / scroll rows" },
 ];
@@ -882,6 +895,7 @@ document.addEventListener("click", e => {
     if (!anime) { showToast("Could not load details.", "error"); return; }
     anilistCache[anime.id] = anime;
     showOverlay(renderDetailOverlay(anime));
+    findAnikotoId(anime.id);
   }
 
   if (action === "close-overlay") { hideOverlay(); }
@@ -889,7 +903,7 @@ document.addEventListener("click", e => {
   if (action === "add-to-library") {
     const id = target.dataset.id;
     const anime = anilistCache[id] || browseData.results.find(r => String(r.id) === id) || searchResults.find(r => String(r.id) === id);
-    if (anime) { addToLibrary(anime); hideOverlay(); }
+    if (anime) { addToLibrary(anime); hideOverlay(); findAnikotoId(anime.id); }
   }
 
   if (action === "open-watch") {
@@ -924,14 +938,23 @@ document.addEventListener("click", e => {
   if (action === "switch-provider") {
     const entry = getEntry(currentWatchId);
     if (!entry) return;
-    const lang = entry.language || "sub";
     let tries = 0;
     do {
       currentProvider = (currentProvider + 1) % STREAM_PROVIDERS.length;
       tries++;
-    } while (tries < STREAM_PROVIDERS.length && !STREAM_PROVIDERS[currentProvider].buildUrl(entry, currentEpisode, lang));
+    } while (tries < STREAM_PROVIDERS.length && !STREAM_PROVIDERS[currentProvider].buildUrl(entry, currentEpisode, currentLanguage));
     renderContent();
     showToast(`Switched to ${STREAM_PROVIDERS[currentProvider].name}`, "success");
+  }
+
+  if (action === "toggle-language") {
+    const entry = getEntry(currentWatchId);
+    if (!entry) return;
+    currentLanguage = currentLanguage === "sub" ? "dub" : "sub";
+    entry.language = currentLanguage;
+    saveData();
+    renderContent();
+    showToast(`Switched to ${currentLanguage === "sub" ? "Sub" : "Dub"}`, "success");
   }
 
   if (action === "mark-watched") {
@@ -1026,6 +1049,17 @@ document.addEventListener("keydown", e => {
     currentProvider = (currentProvider + 1) % STREAM_PROVIDERS.length;
     renderContent();
     showToast(`Switched to ${STREAM_PROVIDERS[currentProvider].name}`, "success");
+  }
+
+  if (e.key === "l" && currentWatchId && !e.target.closest("input,textarea")) {
+    const entry = getEntry(currentWatchId);
+    if (!entry) return;
+    e.preventDefault();
+    currentLanguage = currentLanguage === "sub" ? "dub" : "sub";
+    entry.language = currentLanguage;
+    saveData();
+    renderContent();
+    showToast(`Switched to ${currentLanguage === "sub" ? "Sub" : "Dub"}`, "success");
   }
 });
 
