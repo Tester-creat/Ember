@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="description" content="Ember — Free anime streaming">
+  <meta name="theme-color" content="#0a0a0f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Ember — Free Anime Streaming</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <nav class="nav" id="navbar">
+    <div class="nav__inner">
+      <a href="#" class="nav__brand" data-tab="home" data-action="tab">
+        <svg class="nav__logo" viewBox="0 0 30 30" fill="none">
+          <path d="M15 3C12 8 9 12 9 16C9 19.3 11.7 22 15 22C18.3 22 21 19.3 21 16C21 12 18 8 15 3Z" fill="url(#logoGrad)" opacity="0.9"/>
+          <path d="M15 7C13 10.5 11.5 13.5 11.5 16C11.5 18 13 19.5 15 19.5C17 19.5 18.5 18 18.5 16C18.5 13.5 17 10.5 15 7Z" fill="#fff" opacity="0.3"/>
+          <polygon points="13.5,11 13.5,18 18.5,14.5" fill="#fff" opacity="0.8"/>
+          <defs><linearGradient id="logoGrad" x1="9" y1="3" x2="21" y2="22"><stop stop-color="#7c3aed"/><stop offset="1" stop-color="#f59e0b"/></linearGradient></defs>
+        </svg>
+        <span class="nav__name">Ember</span>
+      </a>
+      <div class="nav__links" id="navCenter">
+        <button class="nav__link" data-tab="home" data-action="tab">Home</button>
+        <button class="nav__link" data-tab="browse" data-action="tab">Browse</button>
+        <button class="nav__link" data-tab="seasonal" data-action="tab">Seasonal</button>
+        <button class="nav__link" data-tab="library" data-action="tab">Library</button>
+      </div>
+      <div class="nav__actions">
+        <div class="nav__search" id="navSearch">
+          <svg class="nav__search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input type="search" id="globalSearch" class="search-input" placeholder="Search..." autocomplete="off" aria-label="Search">
+        </div>
+        <button class="mobile-search-btn" id="mobileSearchBtn" aria-label="Toggle search">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <main class="main" id="app">
+    <div class="hero" id="hero">
+      <div class="hero__glow"></div>
+      <div class="hero__bg" id="heroBg"></div>
+      <div class="hero__overlay"></div>
+      <div class="hero__body">
+        <div class="hero__accent">Your Private Stream</div>
+        <h1 class="hero__title">Ember</h1>
+        <p class="hero__subtitle">Discover and stream your favorite anime</p>
+        <div class="hero__actions">
+          <button class="btn btn--primary" data-tab="browse" data-action="tab">Browse Anime</button>
+          <button class="btn btn--glass" data-tab="library" data-action="tab">My Library</button>
+        </div>
+      </div>
+    </div>
+    <div class="content" id="content"></div>
+  </main>
+
+  <div class="overlay" id="overlay"></div>
+
+  <div class="shortcuts-modal" id="shortcutsModal">
+    <div class="shortcuts-panel">
+      <div class="shortcuts-title">Keyboard Shortcuts</div>
+      <div class="shortcuts-grid" id="shortcutsGrid"></div>
+      <button class="btn btn--glass" style="margin-top:var(--space-4);width:100%" data-action="close-shortcuts">Close</button>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toastContainer" aria-live="polite"></div>
+
+  <div class="mobile-bar" id="mobileTabs">
+    <button class="mobile-tab is-active" data-tab="home" data-action="tab">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      <span>Home</span>
+    </button>
+    <button class="mobile-tab" data-tab="browse" data-action="tab">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      <span>Browse</span>
+    </button>
+    <button class="mobile-tab" data-tab="search" data-action="tab">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <span>Search</span>
+    </button>
+    <button class="mobile-tab" data-tab="library" data-action="tab">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+      <span>Library</span>
+    </button>
+  </div>
+
+  <footer class="footer">
+    Ember &mdash; your private stream. Data stored locally. <span>&#9733;</span>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
