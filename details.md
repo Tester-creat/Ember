@@ -16,6 +16,7 @@ Ember is a browser-based anime streaming and tracking platform. Originally forke
 - **Server** — Node.js (`server.js`) serves static files and proxies Anikoto API requests
 - **Testing** — Vitest + fast-check (property-based testing), 71 tests across 8 files
 - **PWA** — Service worker (`sw.js`) caches static assets for offline access
+- **Favicon** — SVG favicon (`favicon.svg`) matching the Ember logo; linked in `<head>` and `manifest.json`
 
 ### File Structure
 
