@@ -13,7 +13,8 @@ Ember is a browser-based anime streaming and tracking platform. Originally forke
 - **Vanilla JS** — no frameworks, no build step, no SPA router
 - **CSS** — custom properties, glass-morphism via `backdrop-filter`, responsive
 - **HTML** — single `index.html` with all UI in the DOM
-- **Testing** — Vitest + fast-check (property-based testing), 73 tests across 8 files
+- **Server** — Node.js (`server.js`) serves static files and proxies Anikoto API requests
+- **Testing** — Vitest + fast-check (property-based testing), 71 tests across 8 files
 - **PWA** — Service worker (`sw.js`) caches static assets for offline access
 
 ### File Structure
@@ -107,7 +108,8 @@ item.terms_by_type.type[0] → media.format ("TV")
 - Sort order is by `updated_at` (most recently updated first)
 - Seasonal filtering: fetch from `/recent-anime` and filter by `item.season` + `item.year` client-side
 - Both "Trending" and "Popular" browse modes return the same data (same endpoint)
-- No CORS issues when served via HTTP
+- Anikoto API has no CORS headers — `server.js` proxies requests adding `access-control-allow-origin: *`
+- Run with: `node server.js` (replaces `npx serve .`)
 
 ### 2. AniList GraphQL (Fallback — Search Only)
 
@@ -140,26 +142,20 @@ query($search:String, $page:Int, $perPage:Int) {
 
 ## Streaming Providers
 
-4 providers in `STREAM_PROVIDERS` array (`app.js:15`):
+2 providers in `STREAM_PROVIDERS` array (`app.js:18`):
 
-| Provider | URL Pattern | Status |
+| Provider | URL Pattern | ID Type |
 |---|---|---|
-| **MegaPlay** | `https://megaplay.buzz/stream/ani/{anilistId}/{ep}/{lang}` | Primary — resolves via Anikoto API for verified embed URLs |
-| **Cinetaro** | `https://api.cinetaro.buzz/embed/anime/{anilistId}/1/{ep}?type={lang}` | Fallback |
-| **VidPlus** | `https://player.vidplus.to/embed/anime/{anilistId}/{ep}?dub={bool}&autoplay=true` | Fallback |
-| **VidNest** | `https://vidnest.fun/anime/{anilistId}/{ep}/{lang}` | Fallback |
+| **MegaPlay** | `https://megaplay.buzz/stream/s-2/{embedId}/{lang}` (from Anikoto API cache) | `anikoto` |
+| **VidNest** | `https://vidnest.fun/anime/{anilistId}/{ep}/{lang}` | `anilist` |
 
-**All providers use `anilistId` as the identifier.** Entries stored in localStorage have both `id` and `anilistId` (same value — the AniList ID).
+**MegaPlay** resolves embed URLs via the Anikoto API's `/series/{anikotoId}` endpoint. URLs are cached in `episodeEmbedCache` keyed as `{anilistId}-{ep}-{lang}`. If uncached, MegaPlay returns empty string (user can manually switch to VidNest).
 
-**Provider fallback mechanism:**
-- `setupWatchPlayer` (`app.js:541`) sets a 30-second timer
-- If the iframe receives no `message` event from the provider origin within 30s, it advances to the next provider
-- Manual switching via "Provider" button or `W` key
+**VidNest** uses the AniList ID directly and always returns a URL.
 
-**Anikoto embed URL resolution:**
-- `preloadEpisodeUrls` (`app.js:79`) fetches `GET /series/{anikotoId}` to get verified embed URLs
-- Cached in `episodeEmbedCache` keyed as `{anilistId}-{ep}-{lang}`
-- If a cached URL exists, it takes priority over the direct MegaPlay URL
+**Manual switching:** Use the "Provider" button or `W` key to cycle through providers.
+
+**No auto-fallback.** `buildStreamUrl` returns only the requested provider's URL. The 15s auto-advance timer was removed — users manually switch if one provider doesn't load.
 
 ---
 
@@ -339,11 +335,11 @@ Key actions:
 
 **Runner:** Vitest v2.1.9
 **Property testing:** fast-check v4.7.0
-**Total tests:** 73 (8 files)
+**Total tests:** 71 (8 files)
 
 | File | Tests | What it tests |
 |---|---|---|
-| `providers.test.js` | 31 | Provider URL generation, edge cases, schema validation |
+| `providers.test.js` | 29 | Provider URL generation, edge cases, schema validation |
 | `p1_library_roundtrip.test.js` | 2 | JSON serialization preserves all entry fields |
 | `p3_provider_schema.test.js` | 8 | Provider config objects have required fields |
 | `p4_provider_url_validity.test.js` | 5 | All provider URLs start with `https://` |
@@ -359,8 +355,8 @@ Key actions:
 ## Build & Run
 
 ```bash
-npx serve .          # Serve locally (required for API access)
-npm test             # Run all 73 tests
+node server.js        # Serve locally (static files + CORS proxy for Anikoto API)
+npm test              # Run all 71 tests
 ```
 
 No build step needed. No frameworks. Open `http://localhost:3000` in a browser.

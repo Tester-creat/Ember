@@ -27,7 +27,6 @@ const STREAM_PROVIDERS = [
 ];
 let currentProvider = 0;
 let currentLanguage = "sub";
-let streamFallbackTimer = null;
 
 /* ══ ANIKOTO API ═══════════════════════════════════════════════ */
 function normalizeAnikotoItem(item) {
@@ -59,7 +58,7 @@ function normalizeAnikotoItem(item) {
 
 async function initAnikotoCache() {
   try {
-    const res = await fetch('https://anikotoapi.site/recent-anime?page=1&per_page=50');
+    const res = await fetch('/api/anikoto/recent-anime?page=1&per_page=50');
     const data = await res.json();
     if (data.ok && data.data) {
       data.data.forEach(anime => {
@@ -77,7 +76,7 @@ async function findAnikotoId(anilistId) {
   if (cached) return cached;
   for (let page = 1; page <= 20; page++) {
     try {
-      const res = await fetch(`https://anikotoapi.site/recent-anime?page=${page}&per_page=50`);
+      const res = await fetch(`/api/anikoto/recent-anime?page=${page}&per_page=50`);
       const data = await res.json();
       if (!data.ok || !data.data) break;
       for (const anime of data.data) {
@@ -102,7 +101,7 @@ async function preloadEpisodeUrls(anilistId) {
   }
   if (!anikotoId) return;
   try {
-    const res = await fetch(`https://anikotoapi.site/series/${anikotoId}`);
+    const res = await fetch(`/api/anikoto/series/${anikotoId}`);
     const data = await res.json();
     if (data.ok && data.data?.episodes) {
       let hasDub = false;
@@ -185,7 +184,7 @@ async function loadSeasonal(season, year, page = 1) {
   renderContent();
   try {
     if (page === 1) seasonalData.results = [];
-    const res = await fetch(`https://anikotoapi.site/recent-anime?page=${page}&per_page=50`);
+    const res = await fetch(`/api/anikoto/recent-anime?page=${page}&per_page=50`);
     const data = await res.json();
     if (!data.ok) throw new Error(data.message || 'API error');
     const raw = data.data || [];
@@ -237,7 +236,7 @@ async function searchAnime(query) {
 async function loadBrowse(mode, page = 1) {
   browseData.loading = true; browseData.error = null; browseData._hasMore = false; renderContent();
   try {
-    const res = await fetch(`https://anikotoapi.site/recent-anime?page=${page}&per_page=50`);
+    const res = await fetch(`/api/anikoto/recent-anime?page=${page}&per_page=50`);
     const data = await res.json();
     if (!data.ok) throw new Error(data.message || 'API error');
     const raw = data.data || [];
@@ -569,43 +568,12 @@ function renderEpisodeList(entry, total) {
 
 function buildStreamUrl(entry, ep, lang, idx) {
   if (!entry?.anilistId) return "";
-  for (let i = 0; i < STREAM_PROVIDERS.length; i++) {
-    const pIdx = ((idx + i) % STREAM_PROVIDERS.length + STREAM_PROVIDERS.length) % STREAM_PROVIDERS.length;
-    const p = STREAM_PROVIDERS[pIdx];
-    if (!p.active) continue;
-    const url = p.buildUrl(entry, ep, lang);
-    if (url) {
-      if (pIdx !== currentProvider) currentProvider = pIdx;
-      return url;
-    }
-  }
-  return "";
+  const p = STREAM_PROVIDERS[idx];
+  if (!p || !p.active) return "";
+  return p.buildUrl(entry, ep, lang);
 }
 
 function setupWatchPlayer() {
-  clearTimeout(streamFallbackTimer);
-  const iframe = document.querySelector("[data-watch-iframe]");
-  if (!iframe) return;
-  const knownOrigins = ["megaplay.buzz", "vidnest.fun"];
-  const idxAtStart = currentProvider;
-  const onMsg = (e) => {
-    if (!knownOrigins.some(o => e.origin.includes(o))) return;
-    clearTimeout(streamFallbackTimer);
-    window.removeEventListener("message", onMsg);
-  };
-  window.addEventListener("message", onMsg);
-  streamFallbackTimer = setTimeout(() => {
-    window.removeEventListener("message", onMsg);
-    if (currentProvider !== idxAtStart) return;
-    const next = idxAtStart + 1;
-    if (next < STREAM_PROVIDERS.length) {
-      currentProvider = next;
-      renderContent();
-      showToast(`${STREAM_PROVIDERS[idxAtStart].name} timed out — trying ${STREAM_PROVIDERS[next].name}…`, "error");
-    } else {
-      showToast("All providers exhausted. Try again later.", "error");
-    }
-  }, 15000);
 }
 
 /* ══ TOAST ════════════════════════════════════════════════════ */
@@ -936,13 +904,7 @@ document.addEventListener("click", e => {
   }
 
   if (action === "switch-provider") {
-    const entry = getEntry(currentWatchId);
-    if (!entry) return;
-    let tries = 0;
-    do {
-      currentProvider = (currentProvider + 1) % STREAM_PROVIDERS.length;
-      tries++;
-    } while (tries < STREAM_PROVIDERS.length && !STREAM_PROVIDERS[currentProvider].buildUrl(entry, currentEpisode, currentLanguage));
+    currentProvider = (currentProvider + 1) % STREAM_PROVIDERS.length;
     renderContent();
     showToast(`Switched to ${STREAM_PROVIDERS[currentProvider].name}`, "success");
   }
@@ -1094,7 +1056,7 @@ document.getElementById("mobileSearchBtn")?.addEventListener("click", () => {
 loadData();
 renderContent();
 if (location.protocol === "file:") {
-  showToast("Open via HTTP server (npx serve .) for API access", "error");
+  showToast("Open via HTTP server (node server.js) for API access", "error");
 }
 if (!browseData.results.length) loadBrowse("trending");
 initAnikotoCache();

@@ -26,17 +26,9 @@ let currentProvider = 0;
 
 function buildStreamUrl(entry, episode, language, providerIndex = 0) {
   if (!entry || !entry.anilistId) return "";
-  for (let i = 0; i < STREAM_PROVIDERS.length; i++) {
-    const pIdx = ((providerIndex + i) % STREAM_PROVIDERS.length + STREAM_PROVIDERS.length) % STREAM_PROVIDERS.length;
-    const p = STREAM_PROVIDERS[pIdx];
-    if (!p.active) continue;
-    const url = p.buildUrl(entry, episode, language);
-    if (url) {
-      if (pIdx !== currentProvider) currentProvider = pIdx;
-      return url;
-    }
-  }
-  return "";
+  const p = STREAM_PROVIDERS[providerIndex];
+  if (!p || !p.active) return "";
+  return p.buildUrl(entry, episode, language);
 }
 
 afterEach(() => {
@@ -143,9 +135,9 @@ describe('Provider URL Generation', () => {
   });
 
   describe('buildStreamUrl function', () => {
-    it('should fall through to VidNest when MegaPlay has no cache (index 0)', () => {
+    it('should return empty when MegaPlay has no cache (index 0)', () => {
       const url = buildStreamUrl(sampleEntry, 1, 'sub', 0);
-      expect(url).toBe('https://vidnest.fun/anime/21/1/sub');
+      expect(url).toBe('');
     });
 
     it('should return MegaPlay URL from cache when available', () => {
@@ -159,14 +151,14 @@ describe('Provider URL Generation', () => {
       expect(url).toBe('https://vidnest.fun/anime/21/1/sub');
     });
 
-    it('should handle out-of-bounds provider index (wraps around)', () => {
+    it('should return empty string for out-of-bounds provider index', () => {
       const url = buildStreamUrl(sampleEntry, 1, 'sub', 999);
-      expect(url).toBe('https://vidnest.fun/anime/21/1/sub');
+      expect(url).toBe('');
     });
 
-    it('should handle negative provider index (wraps around)', () => {
+    it('should return empty string for negative provider index', () => {
       const url = buildStreamUrl(sampleEntry, 1, 'sub', -1);
-      expect(url).toBe('https://vidnest.fun/anime/21/1/sub');
+      expect(url).toBe('');
     });
 
     it('should return empty string for missing entry', () => {
@@ -183,15 +175,13 @@ describe('Provider URL Generation', () => {
       const url = buildStreamUrl({ anilistId: 0, title: "Test" }, 1, 'sub');
       expect(url).toBe('');
     });
-  });
 
-  describe('Provider fallback behavior', () => {
-    it('should fall through all providers and return empty when none work', () => {
-      STREAM_PROVIDERS.forEach(p => { if (p.name === "VidNest") { const orig = p.buildUrl; p.buildUrl = () => ""; }});
-      STREAM_PROVIDERS[1].buildUrl = () => "";
+    it('should return only the requested provider URL with no fallthrough', () => {
+      episodeEmbedCache['21-1-sub'] = 'https://megaplay.buzz/stream/s-2/170320/sub';
       const url = buildStreamUrl(sampleEntry, 1, 'sub', 0);
-      expect(url).toBe('');
-      STREAM_PROVIDERS[1].buildUrl = (entry, ep, lang) => `https://vidnest.fun/anime/${entry.anilistId}/${ep}/${lang}`;
+      expect(url).toBe('https://megaplay.buzz/stream/s-2/170320/sub');
+      const url1 = buildStreamUrl(sampleEntry, 1, 'sub', 1);
+      expect(url1).toBe('https://vidnest.fun/anime/21/1/sub');
     });
   });
 
