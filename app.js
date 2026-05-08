@@ -34,6 +34,33 @@ let currentProvider = 0;
 let streamFallbackTimer = null;
 
 /* ══ ANIKOTO API ═══════════════════════════════════════════════ */
+function normalizeAnikotoItem(item) {
+  const aniId = Number(item.ani_id) || 0;
+  return {
+    id: aniId,
+    anilistId: aniId,
+    idMal: Number(item.mal_id) || 0,
+    title: {
+      english: item.title || '',
+      romaji: item.alternative || '',
+      native: item.native || ''
+    },
+    coverImage: {
+      large: item.poster || ''
+    },
+    episodes: Number(item.episodes) || 0,
+    duration: item.duration ? parseInt(item.duration) : null,
+    status: item.status || '',
+    averageScore: item.score && item.score !== '?' ? Math.round(Number(item.score) * 10) : 0,
+    genres: item.terms_by_type?.genre || [],
+    season: (item.season || '').toUpperCase(),
+    year: Number(item.year) || null,
+    format: item.terms_by_type?.type?.[0] || 'TV',
+    description: item.description || '',
+    startDate: { year: Number(item.year) || null, month: null, day: null }
+  };
+}
+
 async function initAnikotoCache() {
   try {
     const res = await fetch('https://anikotoapi.site/recent-anime?page=1&per_page=50');
@@ -134,11 +161,21 @@ const SEASONS = ["WINTER", "SPRING", "SUMMER", "FALL"];
 
 async function loadSeasonal(season, year, page = 1) {
   seasonalData.loading = true; seasonalData.error = null; seasonalData.season = season; seasonalData.year = year;
+  seasonalData._hasMore = false;
   renderContent();
   try {
-    const results = await anilistFetch(SEASONAL_QUERY, { season, year, page, perPage: 30 });
-    if (page === 1) seasonalData.results = results;
-    else seasonalData.results = [...seasonalData.results, ...results];
+    if (page === 1) seasonalData.results = [];
+    const res = await fetch(`https://anikotoapi.site/recent-anime?page=${page}&per_page=50`);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.message || 'API error');
+    const raw = data.data || [];
+    const filtered = raw.filter(item => {
+      const s = (item.season || '').toUpperCase();
+      return s === season && String(item.year) === String(year);
+    });
+    seasonalData._hasMore = raw.length >= 50;
+    const normalized = filtered.map(normalizeAnikotoItem);
+    seasonalData.results = page === 1 ? normalized : [...seasonalData.results, ...normalized];
     seasonalData.page = page;
   } catch (e) { seasonalData.error = e.message; console.error("loadSeasonal:", e); }
   seasonalData.loading = false; renderContent();
@@ -179,15 +216,18 @@ async function searchAnime(query) {
 }
 
 async function loadBrowse(mode, page = 1) {
-  browseData.loading = true; browseData.error = null; renderContent();
+  browseData.loading = true; browseData.error = null; browseData._hasMore = false; renderContent();
   try {
-    let results;
-    if (mode === "trending") results = await anilistFetch(TRENDING_QUERY, { page, perPage: 30 });
-    else if (mode === "popular") results = await anilistFetch(POPULAR_QUERY, { page, perPage: 30 });
-    else results = await anilistFetch(TRENDING_QUERY, { page, perPage: 30 });
+    const res = await fetch(`https://anikotoapi.site/recent-anime?page=${page}&per_page=50`);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.message || 'API error');
+    const raw = data.data || [];
+    browseData._hasMore = raw.length >= 50;
+    const results = raw.map(normalizeAnikotoItem);
     if (page === 1) browseData.results = results;
     else browseData.results = [...browseData.results, ...results];
     browseData.page = page;
+    browseData.mode = mode;
   } catch (e) { browseData.error = e.message; console.error("loadBrowse:", e); }
   browseData.loading = false; renderContent();
 }
@@ -347,7 +387,7 @@ function renderSeasonal() {
     ${seasonalData.loading ? `<div class="empty-state"><div class="empty-state__icon">&#8987;</div><div class="empty-state__title">Loading...</div></div>` :
       seasonalData.error ? `<div class="empty-state"><div class="empty-state__title">${escapeHtml(seasonalData.error)}</div></div>` :
       `<div class="grid">${seasonalData.results.map(renderCard).join("")}</div>
-      ${seasonalData.results.length >= 30 ? `<div style="text-align:center;margin-top:var(--space-4)"><button class="btn btn--glass" data-action="seasonal-more">Load More</button></div>` : ""}`
+      ${seasonalData._hasMore ? `<div style="text-align:center;margin-top:var(--space-4)"><button class="btn btn--glass" data-action="seasonal-more">Load More</button></div>` : ""}`
     }
   </div>`;
 }
@@ -404,7 +444,7 @@ function renderBrowse() {
     ${browseData.loading ? `<div class="empty-state"><div class="empty-state__icon">&#8987;</div><div class="empty-state__title">Loading...</div></div>` :
       browseData.error ? `<div class="empty-state"><div class="empty-state__title">${escapeHtml(browseData.error)}</div></div>` :
       `<div class="grid">${browseData.results.map(renderCard).join("")}</div>
-      ${browseData.results.length >= 30 ? `<div style="text-align:center;margin-top:var(--space-4)"><button class="btn btn--glass" data-action="browse-more">Load More</button></div>` : ""}`
+      ${browseData._hasMore ? `<div style="text-align:center;margin-top:var(--space-4)"><button class="btn btn--glass" data-action="browse-more">Load More</button></div>` : ""}`
     }
   </div>`;
 }
