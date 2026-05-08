@@ -1,41 +1,18 @@
-/**
- * Property test for provider schema invariant (P3)
- * Validates: Requirements 4.1, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6
- * 
- * Property 3: Provider schema invariant
- * For any provider object in the STREAM_PROVIDERS array, the provider SHALL have
- * a non-empty name string, a boolean active field, a callable buildUrl function,
- * and a notes string — regardless of how many providers are added or removed from the array.
- */
-
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
 import { arbProviderConfig } from './generators.js';
+
+const episodeEmbedCache = {};
 
 const STREAM_PROVIDERS = [
   {
     name: "MegaPlay",
     active: true,
-    idType: "anilist",
-    buildUrl: (entry, ep, lang) =>
-      `https://megaplay.buzz/stream/ani/${entry.anilistId}/${ep}/${lang}`,
-    notes: "Confirmed working. Supports sub/dub via lang param.",
-  },
-  {
-    name: "Cinetaro",
-    active: true,
-    idType: "anilist",
-    buildUrl: (entry, ep, lang) =>
-      `https://api.cinetaro.buzz/embed/anime/${entry.anilistId}/1/${ep}?type=${lang}`,
-    notes: "Each AniList entry is one season; season is always 1 relative to that entry.",
-  },
-  {
-    name: "VidPlus",
-    active: true,
-    idType: "anilist",
-    buildUrl: (entry, ep, lang) =>
-      `https://player.vidplus.to/embed/anime/${entry.anilistId}/${ep}?dub=${lang === "dub"}&autoplay=true`,
-    notes: "AniList ID-based. Dub flag is boolean query param.",
+    idType: "anikoto",
+    buildUrl: (entry, ep, lang) => {
+      return episodeEmbedCache[`${entry.anilistId}-${ep}-${lang}`] || "";
+    },
+    notes: "Primary — resolved via Anikoto API (episode embed IDs)",
   },
   {
     name: "VidNest",
@@ -43,7 +20,7 @@ const STREAM_PROVIDERS = [
     idType: "anilist",
     buildUrl: (entry, ep, lang) =>
       `https://vidnest.fun/anime/${entry.anilistId}/${ep}/${lang}`,
-    notes: "Direct AniList ID embed. Synchronous, no pre-fetch required. URL: /anime/{anilistId}/{ep}/{sub|dub}",
+    notes: "Direct AniList ID embed. Reliable synchronous fallback.",
   },
 ];
 
@@ -54,7 +31,7 @@ function isValidProvider(provider) {
     typeof provider.name === 'string' &&
     provider.name.length > 0 &&
     typeof provider.active === 'boolean' &&
-    (provider.idType === 'anilist' || provider.idType === 'slug') &&
+    (provider.idType === 'anilist' || provider.idType === 'anikoto' || provider.idType === 'slug') &&
     typeof provider.buildUrl === 'function' &&
     typeof provider.notes === 'string'
   );
@@ -69,14 +46,13 @@ describe('Property P3: Provider schema invariant', () => {
           expect(typeof provider.name).toBe('string');
           expect(provider.name.length).toBeGreaterThan(0);
           expect(typeof provider.active).toBe('boolean');
-          expect(['anilist', 'slug'].includes(provider.idType)).toBe(true);
+          expect(['anilist', 'anikoto', 'slug'].includes(provider.idType)).toBe(true);
           expect(typeof provider.buildUrl).toBe('function');
           expect(typeof provider.notes).toBe('string');
-          
+
           const testEntry = { anilistId: 1, title: 'Test' };
           const url = provider.buildUrl(testEntry, 1, 'sub');
           expect(typeof url).toBe('string');
-          expect(url.length).toBeGreaterThan(0);
         }),
         { numRuns: 100 }
       );
@@ -95,14 +71,13 @@ describe('Property P3: Provider schema invariant', () => {
           (indices) => {
             indices.forEach((index) => {
               const provider = STREAM_PROVIDERS[index];
-              
+
               expect(typeof provider.name).toBe('string');
               expect(provider.name.length).toBeGreaterThan(0);
               expect(typeof provider.active).toBe('boolean');
-              expect(provider.idType).toBe('anilist');
               expect(typeof provider.buildUrl).toBe('function');
               expect(typeof provider.notes).toBe('string');
-              
+
               const testEntry = { anilistId: 1, title: 'Test' };
               const testEp = 1;
               const url = provider.buildUrl(testEntry, testEp, 'sub');
@@ -123,7 +98,7 @@ describe('Property P3: Provider schema invariant', () => {
         expect(provider).toHaveProperty('idType');
         expect(provider).toHaveProperty('buildUrl');
         expect(provider).toHaveProperty('notes');
-        
+
         expect(typeof provider.name).toBe('string');
         expect(provider.name.length).toBeGreaterThan(0);
         expect(typeof provider.active).toBe('boolean');
@@ -133,9 +108,8 @@ describe('Property P3: Provider schema invariant', () => {
     });
 
     it('should all have valid idType values', () => {
-      STREAM_PROVIDERS.forEach((provider) => {
-        expect(provider.idType).toBe('anilist');
-      });
+      expect(STREAM_PROVIDERS[0].idType).toBe('anikoto');
+      expect(STREAM_PROVIDERS[1].idType).toBe('anilist');
     });
 
     it('should all have active set to true', () => {
@@ -144,8 +118,8 @@ describe('Property P3: Provider schema invariant', () => {
       });
     });
 
-    it('should have exactly 4 providers in STREAM_PROVIDERS', () => {
-      expect(STREAM_PROVIDERS).toHaveLength(4);
+    it('should have exactly 2 providers in STREAM_PROVIDERS', () => {
+      expect(STREAM_PROVIDERS).toHaveLength(2);
     });
   });
 
@@ -157,7 +131,7 @@ describe('Property P3: Provider schema invariant', () => {
           fc.array(arbProviderConfig, { minLength: 1, maxLength: 10 }),
           (newProviders) => {
             const modifiedProviders = [...STREAM_PROVIDERS, ...newProviders];
-            
+
             modifiedProviders.forEach((provider) => {
               expect(isValidProvider(provider)).toBe(true);
             });
@@ -178,7 +152,7 @@ describe('Property P3: Provider schema invariant', () => {
             const modifiedProviders = STREAM_PROVIDERS.filter(
               (_, index) => index !== indexToRemove
             );
-            
+
             modifiedProviders.forEach((provider) => {
               expect(isValidProvider(provider)).toBe(true);
             });

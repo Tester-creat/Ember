@@ -1,15 +1,3 @@
-/**
- * Property test for provider fallback cycling (P5)
- * Validates: Requirements 1.3, 1.4
- *
- * Property 5: Provider fallback cycles through all active providers
- * For any starting provider index and any number of consecutive fallback events,
- * the provider index SHALL advance to the next active provider in order and wrap
- * back to 0 after the last active provider — such that after exactly N fallbacks
- * (where N equals the number of active providers), the index returns to its
- * original starting value.
- */
-
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
 
@@ -17,26 +5,9 @@ const STREAM_PROVIDERS = [
   {
     name: "MegaPlay",
     active: true,
-    idType: "anilist",
-    buildUrl: (entry, ep, lang) =>
-      `https://megaplay.buzz/stream/ani/${entry.anilistId}/${ep}/${lang}`,
-    notes: "Confirmed working. Supports sub/dub via lang param.",
-  },
-  {
-    name: "Cinetaro",
-    active: true,
-    idType: "anilist",
-    buildUrl: (entry, ep, lang) =>
-      `https://api.cinetaro.buzz/embed/anime/${entry.anilistId}/1/${ep}?type=${lang}`,
-    notes: "Each AniList entry is one season; season is always 1 relative to that entry.",
-  },
-  {
-    name: "VidPlus",
-    active: true,
-    idType: "anilist",
-    buildUrl: (entry, ep, lang) =>
-      `https://player.vidplus.to/embed/anime/${entry.anilistId}/${ep}?dub=${lang === "dub"}&autoplay=true`,
-    notes: "AniList ID-based. Dub flag is boolean query param.",
+    idType: "anikoto",
+    buildUrl: () => "",
+    notes: "Primary — resolved via Anikoto API (episode embed IDs)",
   },
   {
     name: "VidNest",
@@ -44,7 +15,7 @@ const STREAM_PROVIDERS = [
     idType: "anilist",
     buildUrl: (entry, ep, lang) =>
       `https://vidnest.fun/anime/${entry.anilistId}/${ep}/${lang}`,
-    notes: "Direct AniList ID embed. Synchronous, no pre-fetch required. URL: /anime/{anilistId}/{ep}/{sub|dub}",
+    notes: "Direct AniList ID embed. Reliable synchronous fallback.",
   },
 ];
 
@@ -101,13 +72,13 @@ describe('Property P5: Provider fallback cycling', () => {
   );
 
   describe('Provider fallback scenarios', () => {
-    it('should cycle through all 4 active providers in order', () => {
+    it('should cycle through all 2 active providers in order', () => {
       const activeProviders = getActiveProviders();
-      expect(activeProviders).toHaveLength(4);
+      expect(activeProviders).toHaveLength(2);
 
       let currentIdx = 0;
-      const expectedSequence = [0, 1, 2, 3, 0, 1, 2, 3];
-      for (let i = 0; i < 8; i++) {
+      const expectedSequence = [0, 1, 0, 1];
+      for (let i = 0; i < 4; i++) {
         expect(currentIdx).toBe(expectedSequence[i]);
         currentIdx = getNextProviderIndex(currentIdx, activeProviders.length);
       }

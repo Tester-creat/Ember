@@ -1,29 +1,16 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
+const episodeEmbedCache = {};
+
 const STREAM_PROVIDERS = [
   {
     name: "MegaPlay",
     active: true,
-    idType: "anilist",
-    buildUrl: (entry, ep, lang) =>
-      `https://megaplay.buzz/stream/ani/${entry.anilistId}/${ep}/${lang}`,
-    notes: "Confirmed working. Supports sub/dub via lang param.",
-  },
-  {
-    name: "Cinetaro",
-    active: true,
-    idType: "anilist",
-    buildUrl: (entry, ep, lang) =>
-      `https://api.cinetaro.buzz/embed/anime/${entry.anilistId}/1/${ep}?type=${lang}`,
-    notes: "Each AniList entry is one season; season is always 1 relative to that entry.",
-  },
-  {
-    name: "VidPlus",
-    active: true,
-    idType: "anilist",
-    buildUrl: (entry, ep, lang) =>
-      `https://player.vidplus.to/embed/anime/${entry.anilistId}/${ep}?dub=${lang === "dub"}&autoplay=true`,
-    notes: "AniList ID-based. Dub flag is boolean query param.",
+    idType: "anikoto",
+    buildUrl: (entry, ep, lang) => {
+      return episodeEmbedCache[`${entry.anilistId}-${ep}-${lang}`] || "";
+    },
+    notes: "Primary — resolved via Anikoto API (episode embed IDs)",
   },
   {
     name: "VidNest",
@@ -31,19 +18,32 @@ const STREAM_PROVIDERS = [
     idType: "anilist",
     buildUrl: (entry, ep, lang) =>
       `https://vidnest.fun/anime/${entry.anilistId}/${ep}/${lang}`,
-    notes: "Direct AniList ID embed. Synchronous, no pre-fetch required. URL: /anime/{anilistId}/{ep}/{sub|dub}",
+    notes: "Direct AniList ID embed. Reliable synchronous fallback.",
   },
 ];
 
+let currentProvider = 0;
+
 function buildStreamUrl(entry, episode, language, providerIndex = 0) {
   if (!entry || !entry.anilistId) return "";
-  const provider = STREAM_PROVIDERS[providerIndex] || STREAM_PROVIDERS[0];
-  if (!provider || !provider.active) return "";
-  return provider.buildUrl(entry, episode, language);
+  for (let i = 0; i < STREAM_PROVIDERS.length; i++) {
+    const pIdx = ((providerIndex + i) % STREAM_PROVIDERS.length + STREAM_PROVIDERS.length) % STREAM_PROVIDERS.length;
+    const p = STREAM_PROVIDERS[pIdx];
+    if (!p.active) continue;
+    const url = p.buildUrl(entry, episode, language);
+    if (url) {
+      if (pIdx !== currentProvider) currentProvider = pIdx;
+      return url;
+    }
+  }
+  return "";
 }
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  // Clear cache and reset provider index between tests
+  Object.keys(episodeEmbedCache).forEach(k => delete episodeEmbedCache[k]);
+  currentProvider = 0;
 });
 
 describe('Provider URL Generation', () => {
@@ -54,145 +54,119 @@ describe('Provider URL Generation', () => {
   };
 
   describe('MegaPlay provider', () => {
-    it('should generate correct URL with sub language', () => {
+    it('should return empty string when no cached embed URL exists', () => {
       const url = STREAM_PROVIDERS[0].buildUrl(sampleEntry, 1, 'sub');
-      expect(url).toBe('https://megaplay.buzz/stream/ani/21/1/sub');
+      expect(url).toBe('');
     });
 
-    it('should generate correct URL with dub language', () => {
+    it('should return cached embed URL when available', () => {
+      episodeEmbedCache['21-1-sub'] = 'https://megaplay.buzz/stream/s-2/170320/sub';
+      const url = STREAM_PROVIDERS[0].buildUrl(sampleEntry, 1, 'sub');
+      expect(url).toBe('https://megaplay.buzz/stream/s-2/170320/sub');
+    });
+
+    it('should return cached dub URL when available', () => {
+      episodeEmbedCache['21-1-dub'] = 'https://megaplay.buzz/stream/s-2/170320/dub';
       const url = STREAM_PROVIDERS[0].buildUrl(sampleEntry, 1, 'dub');
-      expect(url).toBe('https://megaplay.buzz/stream/ani/21/1/dub');
+      expect(url).toBe('https://megaplay.buzz/stream/s-2/170320/dub');
     });
 
-    it('should handle different episode numbers', () => {
-      const url1 = STREAM_PROVIDERS[0].buildUrl(sampleEntry, 5, 'sub');
-      const url2 = STREAM_PROVIDERS[0].buildUrl(sampleEntry, 100, 'sub');
-      expect(url1).toBe('https://megaplay.buzz/stream/ani/21/5/sub');
-      expect(url2).toBe('https://megaplay.buzz/stream/ani/21/100/sub');
-    });
-  });
-
-  describe('Cinetaro provider', () => {
-    it('should generate correct URL with sub language', () => {
-      const url = STREAM_PROVIDERS[1].buildUrl(sampleEntry, 1, 'sub');
-      expect(url).toBe('https://api.cinetaro.buzz/embed/anime/21/1/1?type=sub');
-    });
-
-    it('should generate correct URL with dub language', () => {
-      const url = STREAM_PROVIDERS[1].buildUrl(sampleEntry, 1, 'dub');
-      expect(url).toBe('https://api.cinetaro.buzz/embed/anime/21/1/1?type=dub');
-    });
-
-    it('should handle different episode numbers', () => {
-      const url1 = STREAM_PROVIDERS[1].buildUrl(sampleEntry, 12, 'sub');
-      const url2 = STREAM_PROVIDERS[1].buildUrl(sampleEntry, 250, 'dub');
-      expect(url1).toBe('https://api.cinetaro.buzz/embed/anime/21/1/12?type=sub');
-      expect(url2).toBe('https://api.cinetaro.buzz/embed/anime/21/1/250?type=dub');
-    });
-  });
-
-  describe('VidPlus provider', () => {
-    it('should generate correct URL with sub language (dub=false)', () => {
-      const url = STREAM_PROVIDERS[2].buildUrl(sampleEntry, 1, 'sub');
-      expect(url).toBe('https://player.vidplus.to/embed/anime/21/1?dub=false&autoplay=true');
-    });
-
-    it('should generate correct URL with dub language (dub=true)', () => {
-      const url = STREAM_PROVIDERS[2].buildUrl(sampleEntry, 1, 'dub');
-      expect(url).toBe('https://player.vidplus.to/embed/anime/21/1?dub=true&autoplay=true');
-    });
-
-    it('should handle different episode numbers with sub', () => {
-      const url = STREAM_PROVIDERS[2].buildUrl(sampleEntry, 50, 'sub');
-      expect(url).toBe('https://player.vidplus.to/embed/anime/21/50?dub=false&autoplay=true');
-    });
-
-    it('should handle different episode numbers with dub', () => {
-      const url = STREAM_PROVIDERS[2].buildUrl(sampleEntry, 75, 'dub');
-      expect(url).toBe('https://player.vidplus.to/embed/anime/21/75?dub=true&autoplay=true');
+    it('should handle different episode cache keys', () => {
+      episodeEmbedCache['21-5-sub'] = 'https://megaplay.buzz/stream/s-2/99999/sub';
+      const url = STREAM_PROVIDERS[0].buildUrl(sampleEntry, 5, 'sub');
+      expect(url).toBe('https://megaplay.buzz/stream/s-2/99999/sub');
     });
   });
 
   describe('VidNest provider', () => {
     it('should generate correct URL with sub language', () => {
-      const url = STREAM_PROVIDERS[3].buildUrl(sampleEntry, 1, 'sub');
+      const url = STREAM_PROVIDERS[1].buildUrl(sampleEntry, 1, 'sub');
       expect(url).toBe('https://vidnest.fun/anime/21/1/sub');
     });
 
     it('should generate correct URL with dub language', () => {
-      const url = STREAM_PROVIDERS[3].buildUrl(sampleEntry, 1, 'dub');
+      const url = STREAM_PROVIDERS[1].buildUrl(sampleEntry, 1, 'dub');
       expect(url).toBe('https://vidnest.fun/anime/21/1/dub');
     });
 
     it('should handle different episode numbers', () => {
-      const url1 = STREAM_PROVIDERS[3].buildUrl(sampleEntry, 5, 'sub');
-      const url2 = STREAM_PROVIDERS[3].buildUrl(sampleEntry, 100, 'dub');
+      const url1 = STREAM_PROVIDERS[1].buildUrl(sampleEntry, 5, 'sub');
+      const url2 = STREAM_PROVIDERS[1].buildUrl(sampleEntry, 100, 'dub');
       expect(url1).toBe('https://vidnest.fun/anime/21/5/sub');
       expect(url2).toBe('https://vidnest.fun/anime/21/100/dub');
     });
 
     it('URL starts with "https://"', () => {
-      const url = STREAM_PROVIDERS[3].buildUrl(sampleEntry, 1, 'sub');
+      const url = STREAM_PROVIDERS[1].buildUrl(sampleEntry, 1, 'sub');
       expect(url.startsWith('https://')).toBe(true);
     });
   });
 
   describe('All providers HTTPS verification', () => {
-    it('should return HTTPS URLs for all active providers', () => {
+    it('should return HTTPS URLs for all active providers that produce URLs', () => {
       STREAM_PROVIDERS.forEach((provider) => {
         if (provider.active) {
           const url = provider.buildUrl(sampleEntry, 1, 'sub');
-          expect(url).toMatch(/^https:\/\//);
+          // VidNest always returns HTTPS; MegaPlay only when cached
+          if (url) expect(url).toMatch(/^https:\/\//);
         }
       });
     });
   });
 
   describe('Edge cases', () => {
-    it('should handle episode 0', () => {
+    it('should handle episode 0 MegaPlay (no cache)', () => {
       const url = STREAM_PROVIDERS[0].buildUrl(sampleEntry, 0, 'sub');
-      expect(url).toBe('https://megaplay.buzz/stream/ani/21/0/sub');
+      expect(url).toBe('');
     });
 
-    it('should handle episode 1', () => {
-      const url = STREAM_PROVIDERS[0].buildUrl(sampleEntry, 1, 'sub');
-      expect(url).toBe('https://megaplay.buzz/stream/ani/21/1/sub');
+    it('should handle episode 0 MegaPlay (cached)', () => {
+      episodeEmbedCache['21-0-sub'] = 'https://megaplay.buzz/stream/s-2/0/sub';
+      const url = STREAM_PROVIDERS[0].buildUrl(sampleEntry, 0, 'sub');
+      expect(url).toBe('https://megaplay.buzz/stream/s-2/0/sub');
     });
 
-    it('should handle large episode numbers', () => {
+    it('should handle large episode numbers in cache', () => {
+      episodeEmbedCache['21-9999-sub'] = 'https://megaplay.buzz/stream/s-2/9999/sub';
       const url = STREAM_PROVIDERS[0].buildUrl(sampleEntry, 9999, 'sub');
-      expect(url).toBe('https://megaplay.buzz/stream/ani/21/9999/sub');
+      expect(url).toBe('https://megaplay.buzz/stream/s-2/9999/sub');
     });
 
-    it('should handle different anime IDs', () => {
+    it('should handle different anime IDs with VidNest', () => {
       const entry1 = { anilistId: 1, title: "Cowboy Bebop" };
       const entry2 = { anilistId: 12345, title: "Test Anime" };
-      const url1 = STREAM_PROVIDERS[0].buildUrl(entry1, 1, 'sub');
-      const url2 = STREAM_PROVIDERS[0].buildUrl(entry2, 1, 'sub');
-      expect(url1).toBe('https://megaplay.buzz/stream/ani/1/1/sub');
-      expect(url2).toBe('https://megaplay.buzz/stream/ani/12345/1/sub');
+      const url1 = STREAM_PROVIDERS[1].buildUrl(entry1, 1, 'sub');
+      const url2 = STREAM_PROVIDERS[1].buildUrl(entry2, 1, 'sub');
+      expect(url1).toBe('https://vidnest.fun/anime/1/1/sub');
+      expect(url2).toBe('https://vidnest.fun/anime/12345/1/sub');
     });
   });
 
   describe('buildStreamUrl function', () => {
-    it('should return URL from default provider (index 0)', () => {
-      const url = buildStreamUrl(sampleEntry, 1, 'sub');
-      expect(url).toBe('https://megaplay.buzz/stream/ani/21/1/sub');
+    it('should fall through to VidNest when MegaPlay has no cache (index 0)', () => {
+      const url = buildStreamUrl(sampleEntry, 1, 'sub', 0);
+      expect(url).toBe('https://vidnest.fun/anime/21/1/sub');
     });
 
-    it('should return URL from specified provider index', () => {
+    it('should return MegaPlay URL from cache when available', () => {
+      episodeEmbedCache['21-1-sub'] = 'https://megaplay.buzz/stream/s-2/170320/sub';
+      const url = buildStreamUrl(sampleEntry, 1, 'sub', 0);
+      expect(url).toBe('https://megaplay.buzz/stream/s-2/170320/sub');
+    });
+
+    it('should return VidNest URL when specifying provider index 1', () => {
       const url = buildStreamUrl(sampleEntry, 1, 'sub', 1);
-      expect(url).toBe('https://api.cinetaro.buzz/embed/anime/21/1/1?type=sub');
+      expect(url).toBe('https://vidnest.fun/anime/21/1/sub');
     });
 
-    it('should handle out-of-bounds provider index (positive)', () => {
+    it('should handle out-of-bounds provider index (wraps around)', () => {
       const url = buildStreamUrl(sampleEntry, 1, 'sub', 999);
-      expect(url).toBe('https://megaplay.buzz/stream/ani/21/1/sub');
+      expect(url).toBe('https://vidnest.fun/anime/21/1/sub');
     });
 
-    it('should handle out-of-bounds provider index (negative)', () => {
+    it('should handle negative provider index (wraps around)', () => {
       const url = buildStreamUrl(sampleEntry, 1, 'sub', -1);
-      expect(url).toBe('https://megaplay.buzz/stream/ani/21/1/sub');
+      expect(url).toBe('https://vidnest.fun/anime/21/1/sub');
     });
 
     it('should return empty string for missing entry', () => {
@@ -211,21 +185,37 @@ describe('Provider URL Generation', () => {
     });
   });
 
+  describe('Provider fallback behavior', () => {
+    it('should fall through all providers and return empty when none work', () => {
+      STREAM_PROVIDERS.forEach(p => { if (p.name === "VidNest") { const orig = p.buildUrl; p.buildUrl = () => ""; }});
+      STREAM_PROVIDERS[1].buildUrl = () => "";
+      const url = buildStreamUrl(sampleEntry, 1, 'sub', 0);
+      expect(url).toBe('');
+      STREAM_PROVIDERS[1].buildUrl = (entry, ep, lang) => `https://vidnest.fun/anime/${entry.anilistId}/${ep}/${lang}`;
+    });
+  });
+
   describe('Language parameter handling', () => {
-    it('should handle sub language for all providers', () => {
-      const urls = [0, 1, 2, 3].map(i => STREAM_PROVIDERS[i].buildUrl(sampleEntry, 1, 'sub'));
-      expect(urls[0]).toContain('/sub');       // MegaPlay
-      expect(urls[1]).toContain('type=sub');   // Cinetaro
-      expect(urls[2]).toContain('dub=false');  // VidPlus
-      expect(urls[3]).toContain('/sub');        // VidNest
+    it('should handle sub language for VidNest', () => {
+      const url = STREAM_PROVIDERS[1].buildUrl(sampleEntry, 1, 'sub');
+      expect(url).toContain('/sub');
     });
 
-    it('should handle dub language for all providers', () => {
-      const urls = [0, 1, 2, 3].map(i => STREAM_PROVIDERS[i].buildUrl(sampleEntry, 1, 'dub'));
-      expect(urls[0]).toContain('/dub');       // MegaPlay
-      expect(urls[1]).toContain('type=dub');   // Cinetaro
-      expect(urls[2]).toContain('dub=true');   // VidPlus
-      expect(urls[3]).toContain('/dub');        // VidNest
+    it('should handle dub language for VidNest', () => {
+      const url = STREAM_PROVIDERS[1].buildUrl(sampleEntry, 1, 'dub');
+      expect(url).toContain('/dub');
+    });
+
+    it('should handle sub language for MegaPlay with cache', () => {
+      episodeEmbedCache['21-1-sub'] = 'https://megaplay.buzz/stream/s-2/170320/sub';
+      const url = STREAM_PROVIDERS[0].buildUrl(sampleEntry, 1, 'sub');
+      expect(url).toContain('/sub');
+    });
+
+    it('should handle dub language for MegaPlay with cache', () => {
+      episodeEmbedCache['21-1-dub'] = 'https://megaplay.buzz/stream/s-2/170320/dub';
+      const url = STREAM_PROVIDERS[0].buildUrl(sampleEntry, 1, 'dub');
+      expect(url).toContain('/dub');
     });
   });
 
@@ -245,15 +235,14 @@ describe('Provider URL Generation', () => {
       });
     });
 
-    it('should have exactly 4 active providers', () => {
+    it('should have exactly 2 active providers', () => {
       const activeProviders = STREAM_PROVIDERS.filter(p => p.active);
-      expect(activeProviders).toHaveLength(4);
+      expect(activeProviders).toHaveLength(2);
     });
 
-    it('should all use anilist idType', () => {
-      STREAM_PROVIDERS.forEach((provider) => {
-        expect(provider.idType).toBe('anilist');
-      });
+    it('should have correct idType for each provider', () => {
+      expect(STREAM_PROVIDERS[0].idType).toBe('anikoto');
+      expect(STREAM_PROVIDERS[1].idType).toBe('anilist');
     });
   });
 });

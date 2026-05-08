@@ -15,22 +15,14 @@ const episodeEmbedCache = {};
 const anikotoIdCache = {};
 
 const STREAM_PROVIDERS = [
-  { name: "MegaPlay", active: true, idType: "anilist",
+  { name: "MegaPlay", active: true, idType: "anikoto",
     buildUrl: (entry, ep, lang) => {
-      const cached = episodeEmbedCache[`${entry.anilistId}-${ep}-${lang}`];
-      if (cached) return cached;
-      return `https://megaplay.buzz/stream/ani/${entry.anilistId}/${ep}/${lang}`;
+      return episodeEmbedCache[`${entry.anilistId}-${ep}-${lang}`] || "";
     },
-    notes: "Primary provider — resolves via Anikoto API for verified embed URLs" },
-  { name: "Cinetaro", active: true, idType: "anilist",
-    buildUrl: (entry, ep, lang) => `https://api.cinetaro.buzz/embed/anime/${entry.anilistId}/1/${ep}?type=${lang}`,
-    notes: "Fallback provider" },
-  { name: "VidPlus", active: true, idType: "anilist",
-    buildUrl: (entry, ep, lang) => `https://player.vidplus.to/embed/anime/${entry.anilistId}/${ep}?dub=${lang === "dub"}&autoplay=true`,
-    notes: "Fallback provider" },
+    notes: "Primary — resolved via Anikoto API (episode embed IDs)" },
   { name: "VidNest", active: true, idType: "anilist",
     buildUrl: (entry, ep, lang) => `https://vidnest.fun/anime/${entry.anilistId}/${ep}/${lang}`,
-    notes: "Fallback provider" },
+    notes: "Direct AniList ID embed. Reliable synchronous fallback." },
 ];
 let currentProvider = 0;
 let streamFallbackTimer = null;
@@ -78,8 +70,34 @@ async function initAnikotoCache() {
   } catch {}
 }
 
+async function findAnikotoId(anilistId) {
+  const cached = anikotoIdCache[String(anilistId)];
+  if (cached) return cached;
+  for (let page = 1; page <= 3; page++) {
+    try {
+      const res = await fetch(`https://anikotoapi.site/recent-anime?page=${page}&per_page=50`);
+      const data = await res.json();
+      if (!data.ok || !data.data) break;
+      for (const anime of data.data) {
+        const aId = String(anime.ani_id);
+        if (aId && aId !== "0") {
+          anikotoIdCache[aId] = anime.id;
+        }
+        if (aId === String(anilistId)) {
+          return anime.id;
+        }
+      }
+      if (data.data.length < 50) break;
+    } catch { break; }
+  }
+  return null;
+}
+
 async function preloadEpisodeUrls(anilistId) {
-  const anikotoId = anikotoIdCache[String(anilistId)];
+  let anikotoId = anikotoIdCache[String(anilistId)];
+  if (!anikotoId) {
+    anikotoId = await findAnikotoId(anilistId);
+  }
   if (!anikotoId) return;
   try {
     const res = await fetch(`https://anikotoapi.site/series/${anikotoId}`);
@@ -89,13 +107,6 @@ async function preloadEpisodeUrls(anilistId) {
         if (ep.embed_url?.sub) episodeEmbedCache[`${anilistId}-${ep.number}-sub`] = ep.embed_url.sub;
         if (ep.embed_url?.dub) episodeEmbedCache[`${anilistId}-${ep.number}-dub`] = ep.embed_url.dub;
       });
-      const currentKey = `${anilistId}-${currentEpisode}-${getEntry(currentWatchId)?.language || "sub"}`;
-      if (episodeEmbedCache[currentKey]) {
-        const iframe = document.querySelector("[data-watch-iframe]");
-        if (iframe && iframe.src !== episodeEmbedCache[currentKey]) {
-          iframe.src = episodeEmbedCache[currentKey];
-        }
-      }
     }
   } catch {}
 }
@@ -171,9 +182,11 @@ async function loadSeasonal(season, year, page = 1) {
     const data = await res.json();
     if (!data.ok) throw new Error(data.message || 'API error');
     const raw = data.data || [];
-    const filtered = raw.filter(item => {
-      const s = (item.season || '').toUpperCase();
-      return s === season && String(item.year) === String(year);
+    raw.forEach(anime => {
+      const aId = String(anime.ani_id);
+      if (aId && aId !== "0" && !anikotoIdCache[aId]) {
+        anikotoIdCache[aId] = anime.id;
+      }
     });
     seasonalData._hasMore = raw.length >= 50;
     const normalized = filtered.map(normalizeAnikotoItem);
@@ -221,6 +234,12 @@ async function loadBrowse(mode, page = 1) {
     const data = await res.json();
     if (!data.ok) throw new Error(data.message || 'API error');
     const raw = data.data || [];
+    raw.forEach(anime => {
+      const aId = String(anime.ani_id);
+      if (aId && aId !== "0" && !anikotoIdCache[aId]) {
+        anikotoIdCache[aId] = anime.id;
+      }
+    });
     browseData._hasMore = raw.length >= 50;
     const results = raw.map(normalizeAnikotoItem);
     if (page === 1) browseData.results = results;
@@ -499,10 +518,11 @@ function renderWatch() {
   const totalEps = entry.episodes || 1;
   const url = buildStreamUrl(entry, currentEpisode, entry.language || "sub", currentProvider);
   const provider = STREAM_PROVIDERS[currentProvider];
+  const hasStream = !!url;
   return `<div class="section">
     <div class="watch-layout">
       <div>
-        <div class="watch-player"><iframe data-watch-iframe src="${escapeHtml(url)}" allow="autoplay; fullscreen" allowfullscreen></iframe></div>
+        <div class="watch-player">${hasStream ? `<iframe data-watch-iframe src="${escapeHtml(url)}" allow="autoplay; fullscreen" allowfullscreen></iframe>` : `<div class="empty-state"><div class="empty-state__title">No stream available</div><div class="empty-state__text">Try switching providers or check back later.</div></div>`}</div>
         <div class="watch-meta">
           <div class="watch-meta__title">${escapeHtml(getDisplayTitle(entry))}</div>
           <div class="watch-meta__info">Episode ${currentEpisode} of ${totalEps}</div>
@@ -538,17 +558,24 @@ function renderEpisodeList(entry, total) {
 
 function buildStreamUrl(entry, ep, lang, idx) {
   if (!entry?.anilistId) return "";
-  const p = STREAM_PROVIDERS[idx] || STREAM_PROVIDERS[0];
-  return p.buildUrl(entry, ep, lang);
+  for (let i = 0; i < STREAM_PROVIDERS.length; i++) {
+    const pIdx = ((idx + i) % STREAM_PROVIDERS.length + STREAM_PROVIDERS.length) % STREAM_PROVIDERS.length;
+    const p = STREAM_PROVIDERS[pIdx];
+    if (!p.active) continue;
+    const url = p.buildUrl(entry, ep, lang);
+    if (url) {
+      if (pIdx !== currentProvider) currentProvider = pIdx;
+      return url;
+    }
+  }
+  return "";
 }
 
 function setupWatchPlayer() {
   clearTimeout(streamFallbackTimer);
   const iframe = document.querySelector("[data-watch-iframe]");
   if (!iframe) return;
-  const entry = getEntry(currentWatchId);
-  if (entry) preloadEpisodeUrls(entry.anilistId);
-  const knownOrigins = ["megaplay.buzz", "cinetaro.buzz", "vidplus.to", "vidnest.fun"];
+  const knownOrigins = ["megaplay.buzz", "vidnest.fun"];
   const idxAtStart = currentProvider;
   const onMsg = (e) => {
     if (!knownOrigins.some(o => e.origin.includes(o))) return;
@@ -567,7 +594,7 @@ function setupWatchPlayer() {
     } else {
       showToast("All providers exhausted. Try again later.", "error");
     }
-  }, 30000);
+  }, 15000);
 }
 
 /* ══ TOAST ════════════════════════════════════════════════════ */
@@ -710,7 +737,7 @@ function addToLibrary(anime) {
   renderContent();
 }
 
-function openWatchView(id) {
+async function openWatchView(id) {
   const entry = getEntry(id);
   if (!entry) { showToast("Title not found.", "error"); return; }
   currentWatchId = id;
@@ -719,6 +746,7 @@ function openWatchView(id) {
   entry.status = "watching";
   entry.lastWatched = Date.now();
   saveData();
+  await preloadEpisodeUrls(entry.anilistId);
   currentTab = "watch";
   const hero = document.getElementById("hero");
   const app = document.getElementById("app");
@@ -894,7 +922,14 @@ document.addEventListener("click", e => {
   }
 
   if (action === "switch-provider") {
-    currentProvider = (currentProvider + 1) % STREAM_PROVIDERS.length;
+    const entry = getEntry(currentWatchId);
+    if (!entry) return;
+    const lang = entry.language || "sub";
+    let tries = 0;
+    do {
+      currentProvider = (currentProvider + 1) % STREAM_PROVIDERS.length;
+      tries++;
+    } while (tries < STREAM_PROVIDERS.length && !STREAM_PROVIDERS[currentProvider].buildUrl(entry, currentEpisode, lang));
     renderContent();
     showToast(`Switched to ${STREAM_PROVIDERS[currentProvider].name}`, "success");
   }

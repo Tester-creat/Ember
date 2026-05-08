@@ -1,42 +1,18 @@
-/**
- * Property test for provider URL validity (P4)
- * Validates: Requirements 5.3, 6.5
- *
- * Property 4: Provider buildUrl returns valid HTTPS URL
- * For any active provider in STREAM_PROVIDERS, any anime entry with a positive
- * integer anilistId, any episode number ≥ 1, and any language value of "sub" or "dub",
- * calling provider.buildUrl(entry, ep, lang) SHALL return a non-empty string that
- * begins with "https://".
- */
-
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import * as fc from 'fast-check';
 import { arbAnimeEntry } from './generators.js';
+
+const episodeEmbedCache = {};
 
 const STREAM_PROVIDERS = [
   {
     name: "MegaPlay",
     active: true,
-    idType: "anilist",
-    buildUrl: (entry, ep, lang) =>
-      `https://megaplay.buzz/stream/ani/${entry.anilistId}/${ep}/${lang}`,
-    notes: "Confirmed working. Supports sub/dub via lang param.",
-  },
-  {
-    name: "Cinetaro",
-    active: true,
-    idType: "anilist",
-    buildUrl: (entry, ep, lang) =>
-      `https://api.cinetaro.buzz/embed/anime/${entry.anilistId}/1/${ep}?type=${lang}`,
-    notes: "Each AniList entry is one season; season is always 1 relative to that entry.",
-  },
-  {
-    name: "VidPlus",
-    active: true,
-    idType: "anilist",
-    buildUrl: (entry, ep, lang) =>
-      `https://player.vidplus.to/embed/anime/${entry.anilistId}/${ep}?dub=${lang === "dub"}&autoplay=true`,
-    notes: "AniList ID-based. Dub flag is boolean query param.",
+    idType: "anikoto",
+    buildUrl: (entry, ep, lang) => {
+      return episodeEmbedCache[`${entry.anilistId}-${ep}-${lang}`] || "";
+    },
+    notes: "Primary — resolved via Anikoto API (episode embed IDs)",
   },
   {
     name: "VidNest",
@@ -44,9 +20,16 @@ const STREAM_PROVIDERS = [
     idType: "anilist",
     buildUrl: (entry, ep, lang) =>
       `https://vidnest.fun/anime/${entry.anilistId}/${ep}/${lang}`,
-    notes: "Direct AniList ID embed. Synchronous, no pre-fetch required. URL: /anime/{anilistId}/{ep}/{sub|dub}",
+    notes: "Direct AniList ID embed. Reliable synchronous fallback.",
   },
 ];
+
+function seedEmbedCache(anilistId, ep, lang) {
+  const key = `${anilistId}-${ep}-${lang}`;
+  if (!episodeEmbedCache[key]) {
+    episodeEmbedCache[key] = `https://megaplay.buzz/stream/s-2/${anilistId}${String(ep).padStart(4, '0')}/${lang}`;
+  }
+}
 
 describe('Property P4: Provider buildUrl returns valid HTTPS URL', () => {
   it(
@@ -61,6 +44,7 @@ describe('Property P4: Provider buildUrl returns valid HTTPS URL', () => {
           fc.oneof(fc.constant("sub"), fc.constant("dub")),
           (entry, ep, lang) => {
             expect(entry.anilistId).toBeGreaterThan(0);
+            seedEmbedCache(entry.anilistId, ep, lang);
 
             activeProviders.forEach((provider) => {
               const url = provider.buildUrl(entry, ep, lang);
@@ -108,6 +92,8 @@ describe('Property P4: Provider buildUrl returns valid HTTPS URL', () => {
               averageScore: 85,
             };
 
+            seedEmbedCache(anilistId, ep, lang);
+
             activeProviders.forEach((provider) => {
               const url = provider.buildUrl(entry, ep, lang);
               expect(typeof url).toBe('string');
@@ -144,7 +130,12 @@ describe('Property P4: Provider buildUrl returns valid HTTPS URL', () => {
       averageScore: 85,
     };
 
+    beforeEach(() => {
+      Object.keys(episodeEmbedCache).forEach(k => delete episodeEmbedCache[k]);
+    });
+
     it('should generate valid HTTPS URLs for each provider with sub language', () => {
+      seedEmbedCache(testEntry.anilistId, 1, "sub");
       STREAM_PROVIDERS.forEach((provider) => {
         if (provider.active) {
           const url = provider.buildUrl(testEntry, 1, "sub");
@@ -155,6 +146,7 @@ describe('Property P4: Provider buildUrl returns valid HTTPS URL', () => {
     });
 
     it('should generate valid HTTPS URLs for each provider with dub language', () => {
+      seedEmbedCache(testEntry.anilistId, 1, "dub");
       STREAM_PROVIDERS.forEach((provider) => {
         if (provider.active) {
           const url = provider.buildUrl(testEntry, 1, "dub");
@@ -166,6 +158,7 @@ describe('Property P4: Provider buildUrl returns valid HTTPS URL', () => {
 
     it('should handle large episode numbers correctly', () => {
       const largeEpisodes = [100, 250, 500, 1000];
+      largeEpisodes.forEach((ep) => seedEmbedCache(testEntry.anilistId, ep, "sub"));
       STREAM_PROVIDERS.forEach((provider) => {
         if (provider.active) {
           largeEpisodes.forEach((ep) => {
