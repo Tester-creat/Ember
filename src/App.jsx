@@ -7,6 +7,8 @@ import Home from './sections/Home';
 import Browse from './sections/Browse';
 import Library from './sections/Library';
 import Watch from './sections/Watch';
+import Seasonal from './sections/Seasonal';
+import Search from './sections/Search';
 import { anikotoFetch } from './utils/api';
 import './index.css';
 
@@ -37,13 +39,14 @@ function AppContent() {
     switch (currentTab) {
       case 'home': return <Home onOpenDetail={setSelectedAnime} />;
       case 'browse': return <Browse onOpenDetail={setSelectedAnime} />;
-      case 'seasonal': return <div className="section"><h2 className="section__title">Seasonal (Coming Soon)</h2></div>;
+      case 'seasonal': return <Seasonal onOpenDetail={setSelectedAnime} />;
       case 'library': return <Library onOpenDetail={setSelectedAnime} />;
       case 'stats': return <div className="section"><h2 className="section__title">Stats (Coming Soon)</h2></div>;
-      case 'search': return <div className="section"><h2 className="section__title">Search (Coming Soon)</h2></div>;
+      case 'search': return <Search onOpenDetail={setSelectedAnime} />;
       default: return <Home onOpenDetail={setSelectedAnime} />;
     }
   };
+
 
   return (
     <div className="app-container">

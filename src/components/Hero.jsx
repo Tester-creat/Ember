@@ -44,7 +44,8 @@ export default function Hero() {
   const entry = userData[String(anime.id)];
   const isWatching = entry?.status === "watching";
   const title = getTitle(anime);
-  const banner = anime.banner || getCoverSrc(anime);
+  const hasBanner = !!anime.banner;
+  const bannerSrc = anime.banner || getCoverSrc(anime);
   const description = truncate(anime.description?.replace(/<[^>]*>/g, ""), 200);
 
   const score = anime.averageScore ? `${anime.averageScore}%` : "";
@@ -57,9 +58,9 @@ export default function Hero() {
     <div className="hero" id="hero">
       <div className="hero__glow"></div>
       <div 
-        key={banner} 
-        className="hero__bg hero__bg--crossfade-in hero__bg--ken-burns" 
-        style={{ backgroundImage: banner ? `url(${banner})` : 'none' }}
+        key={bannerSrc} 
+        className={`hero__bg hero__bg--crossfade-in ${hasBanner ? 'hero__bg--ken-burns' : 'hero__bg--fallback'}`} 
+        style={{ backgroundImage: bannerSrc ? `url(${bannerSrc})` : 'none' }}
       ></div>
       <div className="hero__overlay"></div>
       <div className="hero__body">

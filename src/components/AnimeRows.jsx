@@ -55,9 +55,20 @@ export function MarqueeRow({ title, items, reverse = false, onOpenDetail }) {
     };
 
     requestAnimationFrame(() => requestAnimationFrame(updateMarquee));
-    window.addEventListener('resize', updateMarquee);
-    return () => window.removeEventListener('resize', updateMarquee);
+    
+    let resizeTimer;
+    const throttledResize = () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(updateMarquee, 150);
+    };
+
+    window.addEventListener('resize', throttledResize);
+    return () => {
+      window.removeEventListener('resize', throttledResize);
+      clearTimeout(resizeTimer);
+    };
   }, [items]);
+
 
   return (
     <section className="section">

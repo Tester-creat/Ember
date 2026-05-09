@@ -1,9 +1,46 @@
 
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAnimeData } from '../hooks/useAnimeData';
 
 export default function Navbar() {
   const { currentTab, setCurrentTab, setCurrentWatchId } = useAnimeData();
+  const [isVisible, setIsVisible] = useState(true);
+  const [lastScrollY, setLastScrollY] = useState(0);
+
+  const handleScroll = useCallback(() => {
+    const currentScrollY = window.scrollY;
+    
+    // Always show at the very top
+    if (currentScrollY < 50) {
+      setIsVisible(true);
+    } else {
+      // Hide if scrolling down more than 10px, show if scrolling up more than 10px
+      if (currentScrollY > lastScrollY + 10) {
+        setIsVisible(false);
+      } else if (currentScrollY < lastScrollY - 10) {
+        setIsVisible(true);
+      }
+    }
+    
+    // Only update lastScrollY if we scrolled enough, to prevent micro-jitters
+    if (Math.abs(currentScrollY - lastScrollY) > 10) {
+      setLastScrollY(currentScrollY);
+    }
+  }, [lastScrollY]);
+
+  useEffect(() => {
+    let lastTick = 0;
+    const throttledScroll = () => {
+      const now = Date.now();
+      if (now - lastTick < 50) return; // 20fps throttle for scroll direction is plenty
+      lastTick = now;
+      handleScroll();
+    };
+
+    window.addEventListener('scroll', throttledScroll, { passive: true });
+    return () => window.removeEventListener('scroll', throttledScroll);
+  }, [handleScroll]);
+
 
   const handleTabClick = (tab) => {
     setCurrentTab(tab);
@@ -12,7 +49,7 @@ export default function Navbar() {
   };
 
   return (
-    <nav className="nav" id="navbar">
+    <nav className={`nav ${isVisible ? '' : 'is-hidden'}`} id="navbar">
       <div className="nav__inner">
         <a href="#" className="nav__brand" onClick={(e) => { e.preventDefault(); handleTabClick('home'); }}>
           <svg className="nav__logo" viewBox="0 0 30 30" fill="none">

@@ -102,8 +102,8 @@ export function normalizeAnime(m) {
     anilistId:       m.id || m.anilistId,
     title:           titleObj.romaji || titleObj.english || anikotoTitle || m.title || "",
     titleEnglish:    titleObj.english || m.titleEnglish || anikotoEnglish || "",
-    cover:           coverObj.large || coverObj.medium || m.cover || m.poster || "",
-    banner:          m.bannerImage || m.banner || coverObj.large || coverObj.medium || m.cover || m.poster || "",
+    cover:           coverObj.extraLarge || coverObj.large || coverObj.medium || m.cover || m.poster || "",
+    banner:          m.bannerImage || m.banner || "",
     episodes:        Number(episodes) || 0,
     format:          format,
     averageScore:    avgScore,
@@ -136,24 +136,27 @@ export function truncate(s, n) {
 export function getStatusLabel(s) {
   const map = { 
     "watching": "Watching", 
-    "completed": "Completed", 
+    "queued": "Up Next",
     "plan-to-watch": "Plan to Watch", 
-    "queued": "Queued", 
-    "dropped": "Dropped", 
+    "rewatching": "Rewatching",
     "paused": "Paused", 
+    "favorites": "Favorites",
+    "completed": "Completed", 
+    "archived": "Archived",
+    "dropped": "Dropped", 
     "untracked": "Untracked" 
   };
   return map[s] || s || "Add to List";
 }
 
 export const STATUS_ORDER = [
-  "watching", "completed", "plan-to-watch",
-  "queued", "dropped", "paused", "untracked"
+  "watching", "queued", "plan-to-watch", "rewatching",
+  "paused", "favorites", "completed", "archived", "dropped", "untracked"
 ];
 
 export const LIBRARY_FILTER_STATUSES = [
-  "all", "watching", "completed", "plan-to-watch",
-  "queued", "dropped", "paused", "untracked"
+  "all", "watching", "queued", "plan-to-watch", "rewatching",
+  "paused", "favorites", "completed", "archived", "dropped", "untracked"
 ];
 
 const SEASON_PATTERNS = [
