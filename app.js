@@ -45,8 +45,23 @@ function _normTitle(s) {
 async function fetchAnikotoSeries(anilistId, title) {
   const key = Number(anilistId);
   if (anikotoSeriesCache.has(key)) return anikotoSeriesCache.get(key);
+  // Check anikotoIdCache first (populated by findAnikotoId / preloadEpisodeUrls)
+  const fastId = anikotoIdCache[String(anilistId)];
+  if (fastId) {
+    anikotoSeriesCache.set(key, fastId);
+    return fastId;
+  }
+  // Fast path: try AniList ID directly as Anikoto series ID
+  try {
+    const directRes = await anikotoFetch(`/series/${key}`);
+    const directData = await directRes.json();
+    if (directData.ok && directData.data?.episodes?.length > 0) {
+      anikotoSeriesCache.set(key, key);
+      return key;
+    }
+  } catch {} // API rejected the direct ID — fall through to page scan
   const needle = _normTitle(typeof title === "object" ? (title?.romaji || title?.english) : title);
-  for (let page = 1; page <= 5; page++) {
+  for (let page = 1; page <= 20; page++) {
     try {
       const res = await anikotoFetch(`/recent-anime?page=${page}&per_page=50`);
       const data = await res.json();
@@ -71,6 +86,7 @@ async function fetchAnikotoSeries(anilistId, title) {
     } catch { break; }
   }
   anikotoSeriesCache.set(key, null); // confirmed miss — don't re-request
+  console.warn(`[MegaPlay] fetchAnikotoSeries: no series found for anilistId=${anilistId} needle=${needle}`);
   return null;
 }
 
@@ -85,10 +101,16 @@ async function fetchAnikotoEpisodeEmbedId(anikotoSeriesId, epNum, lang) {
       if (!data.ok || !data.data?.episodes) return null;
       episodes = data.data.episodes;
       anikotoEpisodeCache.set(anikotoSeriesId, episodes);
-    } catch { return null; }
+    } catch (e) {
+      console.error("[MegaPlay] fetchAnikotoEpisodeEmbedId: failed to fetch series", e);
+      return null;
+    }
   }
   const ep = episodes.find(e => Number(e.number) === Number(epNum));
-  if (!ep) return null;
+  if (!ep) {
+    console.warn(`[MegaPlay] fetchAnikotoEpisodeEmbedId: episode ${epNum} not found in series ${anikotoSeriesId}`);
+    return null;
+  }
   // embed_url.sub / embed_url.dub are the full megaplay URLs
   const url = (lang === "dub" ? ep.embed_url?.dub : ep.embed_url?.sub) || ep.embed_url?.sub || null;
   return url || null;
@@ -97,12 +119,20 @@ async function fetchAnikotoEpisodeEmbedId(anikotoSeriesId, epNum, lang) {
 const STREAM_PROVIDERS = [
   { name: "MegaPlay", active: true, idType: "anikoto",
     async buildUrl(entry, ep, lang) {
+      // Fast path: check episodeEmbedCache first (populated by preloadEpisodeUrls)
+      const cacheKey = `${entry.anilistId || entry.id}-${ep}-${lang}`;
+      const cached = episodeEmbedCache[cacheKey];
+      if (cached) return cached;
       try {
         const seriesId = await fetchAnikotoSeries(entry.anilistId || entry.id, entry.title);
         if (!seriesId) return null;
         const url = await fetchAnikotoEpisodeEmbedId(seriesId, ep, lang);
+        if (url) episodeEmbedCache[cacheKey] = url;
         return url || null;
-      } catch { return null; }
+      } catch (e) {
+        console.error("[MegaPlay] buildUrl error:", e);
+        return null;
+      }
     },
     notes: "Primary — Anikoto /series/{id} native embed (s-2 path). Highest reliability." },
   { name: "VidNest", active: true, idType: "anilist",
@@ -114,6 +144,7 @@ const STREAM_PROVIDERS = [
 ];
 let currentProvider = 0;
 let currentLanguage = "sub";
+let watchPlayerError = null; // { provider, message, detail } when provider fails
 
 /* ══ ANIKOTO API ═══════════════════════════════════════════════ */
 function anikotoFetch(endpoint) {
@@ -188,6 +219,15 @@ async function initAnikotoCache() {
 async function findAnikotoId(anilistId) {
   const cached = anikotoIdCache[String(anilistId)];
   if (cached) return cached;
+  // Fast path: try AniList ID directly as Anikoto series ID
+  try {
+    const directRes = await anikotoFetch(`/series/${Number(anilistId)}`);
+    const directData = await directRes.json();
+    if (directData.ok && directData.data?.episodes?.length > 0) {
+      anikotoIdCache[String(anilistId)] = Number(anilistId);
+      return Number(anilistId);
+    }
+  } catch {}
   for (let page = 1; page <= 20; page++) {
     try {
       const res = await anikotoFetch(`/recent-anime?page=${page}&per_page=50`);
@@ -1816,6 +1856,7 @@ function renderWatch() {
   const canDub      = dubAvailable[String(entry.anilistId)] !== false;
   const langIcon    = currentLanguage === "sub" ? "SUB" : "DUB";
   const nextDisabled = (totalEps !== 9999 && currentEpisode >= totalEps) ? "disabled" : "";
+  const errorState = watchPlayerError;
 
   // Feature 1: compute groups and ensure currentEpisodeGroup is in sync
   const groups = getEpisodeGroups(totalEps);
@@ -1823,8 +1864,20 @@ function renderWatch() {
 
   return `<div class="watch-layout">
     <div class="watch-main">
-      <div class="watch-player is-resolving">
+      <div class="watch-player is-resolving${errorState ? ' has-error' : ''}">
         <iframe data-watch-iframe allow="autoplay; fullscreen" allowfullscreen></iframe>
+        ${errorState ? `
+          <div class="watch-player__error-overlay">
+            <div class="watch-player__error-icon">⚠</div>
+            <div class="watch-player__error-title">${escapeHtml(errorState.provider)} Error</div>
+            <div class="watch-player__error-msg">${escapeHtml(errorState.message)}</div>
+            <div class="watch-player__error-detail">${escapeHtml(errorState.detail)}</div>
+            <div class="watch-player__error-actions">
+              <button class="btn btn--primary btn--sm" data-action="retry-provider">Retry ${escapeHtml(errorState.provider)}</button>
+              <button class="btn btn--glass btn--sm" data-action="switch-provider">Switch Provider</button>
+            </div>
+          </div>
+        ` : ''}
       </div>
       <div class="watch-meta" style="margin-top:var(--space-lg)">
         <h1 class="watch-meta__title" style="font-family:var(--font-display);font-size:32px;font-weight:800">${escapeHtml(getDisplayTitle(entry))}</h1>
@@ -2001,6 +2054,7 @@ async function buildStreamUrl(entry, ep, lang, idx) {
 
 // Task 4 — setupWatchPlayer with async resolution + is-resolving state + error postMessage
 function setupWatchPlayer() {
+  if (watchPlayerError) return; // Don't retry automatically while error is showing
   const entry = getEntry(currentWatchId);
   if (!entry) return;
   const iframe = document.querySelector("[data-watch-iframe]");
@@ -2058,8 +2112,19 @@ function setupWatchPlayer() {
     if (currentProvider !== providerIndexAtStart) return; // user switched while resolving
 
     if (!url) {
-      // Provider can't serve this episode — skip immediately
       cleanup();
+      if (providerIndexAtStart === 0) {
+        // MegaPlay failed — show persistent error instead of silent fallback
+        if (playerWrap) playerWrap.classList.remove("is-resolving");
+        watchPlayerError = {
+          provider: provider.name,
+          message: "Stream not available for this episode",
+          detail: "Could not find a playable source. The series may not be available on this provider."
+        };
+        renderContent(); // Re-render to show the error overlay
+        return;
+      }
+      // Other providers: auto-advance
       advanceProvider("has no stream for this episode");
       return;
     }
@@ -2320,7 +2385,8 @@ async function openWatchView(id) {
     const knownTotal = entry.episodes || 9999;
     currentEpisode = Math.min((entry.episodesWatched || 0) + 1, knownTotal);
     
-    // Final render with updated episode data
+    // Clear any error from the first player attempt and re-render with populated caches
+    watchPlayerError = null;
     renderContent();
   } catch (e) {
     console.error("openWatchView preflight failed:", e);
@@ -2507,6 +2573,7 @@ document.addEventListener("click", e => {
   }
 
   if (action === "close-watch") {
+    watchPlayerError = null;
     currentWatchId = null;
     currentTab = "home";
     // Force cleanup of any active player listeners/timers
@@ -2524,6 +2591,7 @@ document.addEventListener("click", e => {
     if (total === 9999 || currentEpisode < total) {
       currentEpisode++;
       currentProvider = 0;
+      watchPlayerError = null;
       // Feature 1: targeted update — no full re-render needed for episode change
       paintEpisodeList();
       renderContent();
@@ -2534,6 +2602,7 @@ document.addEventListener("click", e => {
     if (currentEpisode > 1) {
       currentEpisode--;
       currentProvider = 0;
+      watchPlayerError = null;
       paintEpisodeList();
       renderContent();
     }
@@ -2544,6 +2613,7 @@ document.addEventListener("click", e => {
     if (ep > 0) {
       currentEpisode = ep;
       currentProvider = 0;
+      watchPlayerError = null;
       paintEpisodeList();
       renderContent();
     }
@@ -2576,7 +2646,14 @@ document.addEventListener("click", e => {
     }
   }
 
+  if (action === "retry-provider") {
+    watchPlayerError = null;
+    renderContent();
+    showToast(`Retrying ${STREAM_PROVIDERS[currentProvider].name}…`, "success");
+  }
+
   if (action === "switch-provider") {
+    watchPlayerError = null;
     currentProvider = (currentProvider + 1) % STREAM_PROVIDERS.length;
     renderContent();
     showToast(`Switched to ${STREAM_PROVIDERS[currentProvider].name}`, "success");
@@ -2711,6 +2788,7 @@ document.addEventListener("keydown", e => {
 
   if (e.key === "w" && currentWatchId && !e.target.closest("input,textarea")) {
     e.preventDefault();
+    watchPlayerError = null;
     currentProvider = (currentProvider + 1) % STREAM_PROVIDERS.length;
     renderContent();
     showToast(`Switched to ${STREAM_PROVIDERS[currentProvider].name}`, "success");
@@ -2733,6 +2811,7 @@ document.addEventListener("keydown", e => {
       e.preventDefault();
       currentEpisode--;
       currentProvider = 0;
+      watchPlayerError = null;
       paintEpisodeList();
       renderContent();
     }
@@ -2743,6 +2822,7 @@ document.addEventListener("keydown", e => {
         e.preventDefault();
         currentEpisode++;
         currentProvider = 0;
+        watchPlayerError = null;
         paintEpisodeList();
         renderContent();
       }
