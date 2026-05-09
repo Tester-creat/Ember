@@ -39,31 +39,25 @@ function proxyAnikoto(req, res) {
   const proxyPath = req.url.replace(/^\/api\/anikoto\//, "/");
   const url = ANIKOTO_BASE + proxyPath;
 
-  const proxyReq = https.get(url, { headers: { "User-Agent": "Mozilla/5.0" } }, (proxyRes) => {
-    const chunks = [];
-    proxyRes.on("data", (chunk) => chunks.push(chunk));
-    proxyRes.on("error", () => {
-      res.writeHead(502, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: false, message: "Proxy response error" }));
-    });
-    proxyRes.on("end", () => {
-      const body = Buffer.concat(chunks);
-      const safeHeaders = { ...proxyRes.headers };
-      delete safeHeaders["transfer-encoding"];
-      delete safeHeaders["connection"];
-      delete safeHeaders["keep-alive"];
-      res.writeHead(proxyRes.statusCode, {
-        ...safeHeaders,
-        "access-control-allow-origin": "*",
+  fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } })
+    .then(async (apiRes) => {
+      const body = await apiRes.arrayBuffer();
+      const headers = {};
+      apiRes.headers.forEach((value, name) => {
+        if (!['transfer-encoding', 'connection', 'content-encoding'].includes(name.toLowerCase())) {
+          headers[name] = value;
+        }
       });
-      res.end(body);
+      res.writeHead(apiRes.status, {
+        ...headers,
+        "access-control-allow-origin": "*"
+      });
+      res.end(Buffer.from(body));
+    })
+    .catch(err => {
+      res.writeHead(502, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, message: err.message }));
     });
-  });
-
-  proxyReq.on("error", () => {
-    res.writeHead(502, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ ok: false, message: "Proxy connection error" }));
-  });
 }
 
 const server = http.createServer((req, res) => {

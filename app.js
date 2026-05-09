@@ -288,7 +288,7 @@ async function loadSeasonal(season, year, page = 1) {
 }
 
 /* ══ ANILIST API ═══════════════════════════════════════════════ */
-const SEARCH_QUERY = `query($search:String,$page:Int,$perPage:Int){Page(page:$page,perPage:$perPage){media(search:$search,type:ANIME,sort:POPULARITY_DESC){id idMal title{romaji english native}coverImage{large}episodes duration status averageScore genres season seasonYear format description startDate{year month day}}}}`;
+const SEARCH_QUERY = `query($search:String,$page:Int,$perPage:Int){Page(page:$page,perPage:$perPage){media(search:$search,type:ANIME,sort:POPULARITY_DESC){id idMal title{romaji english native}coverImage{large}episodes nextAiringEpisode{episode} duration status averageScore genres season seasonYear format description startDate{year month day}}}}`;
 
 async function anilistFetch(query, vars, timeoutMs = 10000) {
   const controller = new AbortController();
@@ -315,7 +315,13 @@ async function anilistFetch(query, vars, timeoutMs = 10000) {
 
 async function searchAnime(query) {
   if (!query || query.length < 2) return [];
-  return anilistFetch(SEARCH_QUERY, { search: query, page: 1, perPage: 30 });
+  const results = await anilistFetch(SEARCH_QUERY, { search: query, page: 1, perPage: 30 });
+  results.forEach(r => {
+    if (!r.episodes && r.nextAiringEpisode) {
+      r.episodes = Math.max(1, r.nextAiringEpisode.episode - 1);
+    }
+  });
+  return results;
 }
 
 async function loadBrowse(mode, page = 1) {
