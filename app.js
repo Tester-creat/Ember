@@ -2098,7 +2098,7 @@ function renderWatch() {
   return `<div class="watch-layout">
     <div class="watch-main">
       <div class="watch-player is-resolving${errorState ? ' has-error' : ''}">
-        <iframe data-watch-iframe allow="autoplay; fullscreen" allowfullscreen></iframe>
+        <iframe data-watch-iframe allow="autoplay; fullscreen"></iframe>
         ${errorState ? `
           <div class="watch-player__error-overlay">
             <div class="watch-player__error-icon">⚠</div>
