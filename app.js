@@ -113,36 +113,28 @@ function anikotoFetch(endpoint) {
   return fetch(url);
 }
 
-function normalizeAnikotoItem(item) {
-  const aniId = Number(item.ani_id) || 0;
-  // Parse episode count safely: "?" / null / "0" all become 0 (unknown),
-  // which signals "ongoing — count not yet known" rather than "1 episode".
-  const rawEps = item.episodes;
-  const parsedEps = (rawEps && rawEps !== "?" && rawEps !== "0")
-    ? (Number(rawEps) || 0)
-    : 0;
+function normalizeAnime(m) {
+  if (!m) return null;
+  // Handle both AniList GraphQL shape and Anikoto proxy shape
+  const titleObj = m.title || {};
+  const coverObj = m.coverImage || m.cover || {};
+  const episodes = m.episodes || (m.nextAiringEpisode ? m.nextAiringEpisode.episode - 1 : 0) || 0;
+
   return {
-    id: aniId,
-    anilistId: aniId,
-    idMal: Number(item.mal_id) || 0,
-    title: {
-      english: item.title || '',
-      romaji: item.alternative || '',
-      native: item.native || ''
-    },
-    coverImage: {
-      large: item.poster || ''
-    },
-    episodes: parsedEps,
-    duration: item.duration ? parseInt(item.duration) : null,
-    status: item.status || '',
-    averageScore: item.score && item.score !== '?' ? Math.round(Number(item.score) * 10) : 0,
-    genres: item.terms_by_type?.genre || [],
-    season: (item.season || '').toUpperCase(),
-    year: Number(item.year) || null,
-    format: item.terms_by_type?.type?.[0] || 'TV',
-    description: item.description || '',
-    startDate: { year: Number(item.year) || null, month: null, day: null }
+    id:              m.id || m.anilistId,
+    anilistId:       m.id || m.anilistId,
+    title:           titleObj.romaji || titleObj.english || m.title || "",
+    titleEnglish:    titleObj.english || m.titleEnglish || "",
+    cover:           coverObj.large || coverObj.medium || m.cover || "",
+    banner:          m.bannerImage || m.banner || "",
+    episodes:        Number(episodes) || 0,
+    format:          m.format || "",
+    averageScore:    m.averageScore || 0,
+    description:     m.description || "",
+    genres:          m.genres || [],
+    year:            m.seasonYear || m.year || (m.startDate ? m.startDate.year : 0) || 0,
+    season:          m.season || "",
+    status:          m.status || ""
   };
 }
 
@@ -482,26 +474,12 @@ async function loadSeasonal(season, year, page = 1) {
       }
     `;
     const data = await anilistFetch(query, { season, year, page });
-    const raw = data.data.Page.media || [];
-    seasonalData._hasMore = data.data.Page.pageInfo.hasNextPage;
+    const raw = data || [];
+    seasonalData._hasMore = false; // Page info not easily available in current anilistFetch wrap
     
-    // Normalize to our standard anime object
-    const normalized = raw.map(m => ({
-      id: m.id,
-      anilistId: m.id,
-      title: m.title.romaji || m.title.english || "",
-      titleEnglish: m.title.english || "",
-      cover: m.coverImage.large || "",
-      episodes: m.episodes || (m.nextAiringEpisode ? m.nextAiringEpisode.episode - 1 : 0),
-      format: m.format || "",
-      averageScore: m.averageScore || 0,
-      description: m.description || "",
-      genres: m.genres || [],
-      year: m.seasonYear || 0,
-      season: m.season || ""
-    }));
-
+    const normalized = raw.map(normalizeAnime);
     seasonalData.results = page === 1 ? normalized : [...seasonalData.results, ...normalized];
+    normalized.forEach(a => { anilistCache[a.id] = a; });
     seasonalData.page = page;
   } catch (e) {
     seasonalData.error = e.message;
@@ -540,12 +518,9 @@ async function anilistFetch(query, vars, timeoutMs = 10000) {
 async function searchAnime(query) {
   if (!query || query.length < 2) return [];
   const results = await anilistFetch(SEARCH_QUERY, { search: query, page: 1, perPage: 30 });
-  results.forEach(r => {
-    if (!r.episodes && r.nextAiringEpisode) {
-      r.episodes = Math.max(1, r.nextAiringEpisode.episode - 1);
-    }
-  });
-  return results;
+  const normalized = results.map(normalizeAnime);
+  normalized.forEach(r => { anilistCache[r.id] = r; });
+  return normalized;
 }
 
 async function loadBrowse(mode, page = 1) {
@@ -562,7 +537,8 @@ async function loadBrowse(mode, page = 1) {
       }
     });
     browseData._hasMore = raw.length >= 50;
-    const results = raw.map(normalizeAnikotoItem);
+    const results = raw.map(m => normalizeAnime({ ...m, id: m.ani_id }));
+    results.forEach(a => { anilistCache[a.id] = a; });
     if (page === 1) {
       browseData.results = results;
       if (results[0]) updateHeroBackground(results[0]);
@@ -928,12 +904,20 @@ function computeStats() {
     .map(([year, count]) => ({ year: Number(year), count }));
   const maxYearCount = yearDist.length ? Math.max(...yearDist.map(y => y.count)) : 1;
 
-  // Activity heatmap — last 365 days from sessionLog
+  // Activity heatmap — last 365 days
   const now     = Date.now();
   const oneYear = 365 * 24 * 60 * 60 * 1000;
   const dayMap  = {};
+  
   entries.forEach(e => {
-    (e.sessionLog || []).forEach(ts => {
+    const logs = e.sessionLog || [];
+    // Fallback to lastWatched and dateAdded if logs are missing
+    if (logs.length === 0) {
+      if (e.lastWatched) logs.push(e.lastWatched);
+      if (e.dateAdded) logs.push(e.dateAdded);
+    }
+    
+    logs.forEach(ts => {
       if (ts > 0 && now - ts < oneYear) {
         const d   = new Date(ts);
         const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -1328,9 +1312,9 @@ function renderSeasonal() {
 /* ══ CARDS ════════════════════════════════════════════════════ */
 function renderCard(anime) {
   const title = getTitle(anime);
-  const img = anime.coverImage?.large || "";
+  const img = anime.cover || "";
   const meta = [anime.episodes ? `${anime.episodes} eps` : "", anime.averageScore ? `${anime.averageScore}%` : ""].filter(Boolean).join(" • ");
-  return `<div class="anime-card" data-action="open-detail" data-id="${anime.id}" data-source="${escapeHtml(JSON.stringify(anime))}" role="button" tabindex="0">
+  return `<div class="anime-card" data-action="open-detail" data-id="${anime.id}" role="button" tabindex="0">
     <div class="anime-card__media">${img ? `<img src="${escapeHtml(img)}" alt="${escapeHtml(title)}" loading="lazy">` : ""}</div>
     <div class="anime-card__body">
       <div class="anime-card__title">${escapeHtml(title)}</div>
@@ -2125,13 +2109,8 @@ document.addEventListener("click", e => {
   }
 
   if (action === "open-detail") {
-    let anime;
-    try { anime = JSON.parse(target.dataset.source); } catch { anime = null; }
-    if (!anime) {
-      const id = target.dataset.id;
-      const found = browseData.results.find(r => String(r.id) === id) || searchResults.find(r => String(r.id) === id) || anilistCache[id];
-      if (found) anime = found;
-    }
+    const id = target.dataset.id;
+    const anime = anilistCache[id] || getEntry(id);
     if (!anime) { showToast("Could not load details.", "error"); return; }
     anilistCache[anime.id] = anime;
     showOverlay(renderDetailOverlay(anime));
@@ -2188,6 +2167,8 @@ document.addEventListener("click", e => {
   if (action === "close-watch") {
     currentWatchId = null;
     currentTab = "home";
+    // Force cleanup of any active player listeners/timers
+    window.dispatchEvent(new MessageEvent("message", { data: { event: "error" } }));
     renderContent();
     document.getElementById("hero")?.style.setProperty("display", "flex");
     document.getElementById("app")?.style.setProperty("padding-top", "0");
