@@ -996,10 +996,20 @@ function renderContent() {
 }
 
 function setupMarquees() {
-  document.querySelectorAll(".marquee-track").forEach(track => {
-    const totalWidth = track.scrollWidth / 2;
-    const speed = 60;
-    track.style.setProperty("--marquee-dur", `${Math.max(totalWidth / speed, 15)}s`);
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      document.querySelectorAll(".marquee-track").forEach(track => {
+        const childCount = track.children.length / 2;
+        if (childCount === 0) return;
+        const gap = parseFloat(getComputedStyle(track).gap) || 12;
+        const firstChild = track.children[0];
+        const childWidth = firstChild?.getBoundingClientRect().width || 180;
+        const copyWidth = childCount * childWidth + (childCount - 1) * gap;
+        const speed = 60;
+        const dur = Math.max(copyWidth / speed, 15);
+        track.style.setProperty("--marquee-dur", `${dur}s`);
+      });
+    });
   });
 }
 
