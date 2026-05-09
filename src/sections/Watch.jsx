@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import { useAnimeData } from '../hooks/useAnimeData';
-import { getDisplayTitle, getEntry } from '../utils/animeUtils';
+import { getDisplayTitle } from '../utils/animeUtils';
 import { STREAM_PROVIDERS, fetchWatchOrder } from '../utils/api';
 
 const EP_GROUP_SIZE = 40;

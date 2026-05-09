@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { sortCompletedEntries } from '../utils/animeUtils';
+
 
 const AnimeContext = createContext();
 
