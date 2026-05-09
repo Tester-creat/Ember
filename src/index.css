@@ -79,7 +79,7 @@
   --z-overlay: 300;
   --z-toast:   400;
 
-  /* ── Legacy aliases (keep existing app.js inline styles working) ── */
+  /* ── Design token aliases ── */
   --text:           var(--text1);
   --text-muted:     var(--text2);
   --text-dim:       var(--text3);

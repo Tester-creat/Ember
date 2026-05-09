@@ -12,6 +12,7 @@ import Watch from './sections/Watch';
 import Seasonal from './sections/Seasonal';
 import Search from './sections/Search';
 import { anikotoFetch } from './utils/api';
+import { getCoverSrc, getTitle } from './utils/animeUtils';
 import './index.css';
 
 function AppContent() {
@@ -75,11 +76,11 @@ function AppContent() {
         <div className="overlay is-open" onClick={() => setSelectedAnime(null)}>
           <div className="overlay-card" onClick={e => e.stopPropagation()}>
             <div className="overlay-card__media">
-               <img src={selectedAnime.banner || selectedAnime.cover} alt="" className="cover-media__img" />
-            </div>
-            <div className="overlay-card__content">
-              <button className="btn btn--glass btn--sm" style={{ alignSelf: 'flex-end' }} onClick={() => setSelectedAnime(null)}>Close</button>
-              <h2 className="overlay-card__title">{selectedAnime.title}</h2>
+             <img src={getCoverSrc(selectedAnime)} alt="" className="cover-media__img" />
+             </div>
+             <div className="overlay-card__content">
+               <button className="btn btn--glass btn--sm" style={{ alignSelf: 'flex-end' }} onClick={() => setSelectedAnime(null)}>Close</button>
+               <h2 className="overlay-card__title">{getTitle(selectedAnime)}</h2>
               <div className="overlay-card__meta" style={{ color: 'var(--accent-hi)', fontWeight: '600' }}>
                 {selectedAnime.year} · {selectedAnime.format} · {selectedAnime.averageScore}%
               </div>

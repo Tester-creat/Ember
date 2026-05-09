@@ -1,5 +1,5 @@
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useAnimeData } from '../hooks/useAnimeData';
 import { MarqueeRow } from '../components/AnimeRows';
 import { sortCompletedEntries, getDisplayTitle, getCoverSrc } from '../utils/animeUtils';
@@ -89,6 +89,8 @@ function ContinueCard({ entry, onWatch }) {
   const title = getDisplayTitle(entry);
   const nextEp = (entry.episodesWatched || 0) + 1;
   const totalEp = entry.episodes || '?';
+  const [bgError, setBgError] = useState(false);
+  const [posterError, setPosterError] = useState(false);
 
   return (
     <div
@@ -99,11 +101,19 @@ function ContinueCard({ entry, onWatch }) {
       tabIndex={0}
     >
       <div className="continue-card__bg">
-        <img src={poster} alt="" loading="lazy" decoding="async" className="cover-media__img" />
+        {poster && !bgError ? (
+          <img src={poster} alt="" loading="lazy" decoding="async" className="cover-media__img" onError={() => setBgError(true)} />
+        ) : (
+          <div className="cover-media__ph">{title.charAt(0)}</div>
+        )}
       </div>
       <div className="continue-card__content">
         <div className="continue-card__poster">
-          <img src={poster} alt="" loading="lazy" decoding="async" className="cover-media__img" />
+          {poster && !posterError ? (
+            <img src={poster} alt="" loading="lazy" decoding="async" className="cover-media__img" onError={() => setPosterError(true)} />
+          ) : (
+            <div className="cover-media__ph">{title.charAt(0)}</div>
+          )}
         </div>
         <div className="continue-card__info">
           <div className="continue-card__title">{title}</div>

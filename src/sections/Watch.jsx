@@ -1,8 +1,8 @@
 
 import { useEffect, useState } from 'react';
 import { useAnimeData } from '../hooks/useAnimeData';
-import { getDisplayTitle } from '../utils/animeUtils';
-import { STREAM_PROVIDERS, fetchWatchOrder } from '../utils/api';
+import { getDisplayTitle, getCoverSrc } from '../utils/animeUtils';
+import { STREAM_PROVIDERS, fetchWatchOrder, resolveAnikotoSeries, fetchAnikotoEpisode } from '../utils/api';
 
 export default function Watch() {
   const { 
@@ -15,6 +15,7 @@ export default function Watch() {
   const entry = userData[String(currentWatchId)];
   const [embedUrl, setEmbedUrl] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [resolvingMessage, setResolvingMessage] = useState("");
   const [watchOrder, setWatchOrder] = useState([]);
 
   const totalEps = entry?.episodes || 9999;
@@ -25,14 +26,35 @@ export default function Watch() {
     if (!entry) return;
     const resolve = async () => {
       setLoading(true);
+      setResolvingMessage("Initializing...");
+      setWatchPlayerError(null);
       try {
         const provider = STREAM_PROVIDERS[currentProvider % STREAM_PROVIDERS.length];
-        const url = provider.buildUrl(entry.anilistId, currentEpisode, currentLanguage);
-        setEmbedUrl(url);
+        
+        if (provider.isAnikoto) {
+          setResolvingMessage("Searching Anikoto database...");
+          try {
+            const series = await resolveAnikotoSeries(entry.anilistId, entry);
+            setResolvingMessage(`Loading ${series.title}...`);
+            const url = await fetchAnikotoEpisode(series.id, currentEpisode, currentLanguage);
+            setEmbedUrl(url);
+          } catch (anikotoErr) {
+            console.warn("Anikoto resolution failed, attempting fallback...", anikotoErr);
+            setResolvingMessage("MegaPlay failed, trying VidNest...");
+            const fallback = STREAM_PROVIDERS[1];
+            const url = fallback.buildUrl(entry.anilistId, currentEpisode, currentLanguage);
+            setEmbedUrl(url);
+          }
+        } else {
+          setResolvingMessage(`Loading from ${provider.name}...`);
+          const url = provider.buildUrl(entry.anilistId, currentEpisode, currentLanguage);
+          setEmbedUrl(url);
+        }
       } catch (e) {
         setWatchPlayerError({ provider: 'Provider', message: e.message });
       } finally {
         setLoading(false);
+        setResolvingMessage("");
       }
     };
     resolve();
@@ -55,6 +77,13 @@ export default function Watch() {
         <div className={`watch-player ${loading ? 'is-resolving' : ''} ${watchPlayerError ? 'has-error' : ''}`}>
           {embedUrl && <iframe src={embedUrl} allow="autoplay; fullscreen" data-watch-iframe />}
           
+          {loading && (
+            <div className="watch-player__loading-overlay">
+              <div className="spinner"></div>
+              {resolvingMessage && <div className="resolving-msg">{resolvingMessage}</div>}
+            </div>
+          )}
+
           {watchPlayerError && (
             <div className="watch-player__error-overlay">
               <div className="watch-player__error-icon">⚠</div>
@@ -135,7 +164,7 @@ export default function Watch() {
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}>
                   <div className="wo-card__cover">
-                    <img src={edge.node.coverImage.large || edge.node.coverImage.medium} alt="" />
+                    <img src={getCoverSrc(edge.node)} alt="" />
                   </div>
                   <div className="wo-card__body">
                     <div className="wo-card__badge">{edge.relationType.replace(/_/g, ' ')}</div>

@@ -100,6 +100,7 @@ export function normalizeAnime(m) {
   return {
     id:              m.id || m.anilistId,
     anilistId:       m.id || m.anilistId,
+    idMal:           m.idMal || m.id_mal || 0,
     title:           titleObj.romaji || titleObj.english || anikotoTitle || m.title || "",
     titleEnglish:    titleObj.english || m.titleEnglish || anikotoEnglish || "",
     cover:           coverObj.extraLarge || coverObj.large || coverObj.medium || m.cover || m.poster || "",

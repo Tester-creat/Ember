@@ -1,5 +1,5 @@
 
-import { useEffect, useRef, useMemo, memo } from 'react';
+import { useEffect, useRef, useMemo, useState, memo } from 'react';
 import { getTitle, getCoverSrc, getStatusLabel } from '../utils/animeUtils';
 import { MARQUEE_MAX_ITEMS } from '../utils/renderBudgets';
 
@@ -9,12 +9,13 @@ export const AnimeCard = memo(function AnimeCard({ anime, entry, onOpenDetail })
   const cover = getCoverSrc(data);
   const score = data?.averageScore;
   const status = entry?.status;
+  const [imgError, setImgError] = useState(false);
 
   return (
     <div className="anime-card" onClick={() => onOpenDetail(data)}>
       <div className="anime-card__media">
-        {cover ? (
-          <img src={cover} alt="" loading="lazy" decoding="async" className="anime-card__img" />
+        {cover && !imgError ? (
+          <img src={cover} alt="" loading="lazy" decoding="async" className="anime-card__img" onError={() => setImgError(true)} />
         ) : (
           <div className="anime-card__ph">{title.charAt(0)}</div>
         )}
