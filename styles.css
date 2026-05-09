@@ -1721,3 +1721,457 @@ body::before {
 .section--seasonal {
   padding: var(--sp-5) 5%;
 }
+
+/* ══ STATS TAB ══════════════════════════════════════════════════ */
+
+/* Hero summary cards */
+.sstat-hero-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-5);
+}
+
+.sstat-hero-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: var(--sp-4);
+  text-align: center;
+  transition: transform var(--dur-base) var(--ease-spring),
+              border-color var(--dur-fast);
+}
+
+.sstat-hero-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--border-md);
+}
+
+.sstat-hero-card__value {
+  font-size: var(--t-2xl);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  margin-bottom: var(--sp-1);
+}
+
+.sstat-hero-card__label {
+  font-size: var(--t-xs);
+  font-weight: 600;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+/* Stats card container */
+.sstats-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: var(--sp-5);
+  margin-bottom: var(--sp-4);
+}
+
+.sstats-card__title {
+  font-size: var(--t-md);
+  font-weight: 700;
+  color: var(--text1);
+  margin-bottom: var(--sp-1);
+  letter-spacing: -0.02em;
+}
+
+.sstats-card__sub {
+  font-size: var(--t-xs);
+  color: var(--text3);
+  margin-bottom: var(--sp-4);
+}
+
+/* Two-column row */
+.sstats-row {
+  margin-bottom: var(--sp-4);
+}
+
+.sstats-row--2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-4);
+}
+
+.sstats-row--2col .sstats-card {
+  margin-bottom: 0;
+}
+
+@media (max-width: 767px) {
+  .sstats-row--2col { grid-template-columns: 1fr; }
+}
+
+/* Donut chart */
+.sdonut-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  flex-wrap: wrap;
+}
+
+.sdonut-svg {
+  width: 128px;
+  height: 128px;
+  flex-shrink: 0;
+}
+
+.sdonut-center-num {
+  font-size: 22px;
+  font-weight: 800;
+  fill: var(--text1);
+}
+
+.sdonut-center-label {
+  font-size: 10px;
+  fill: var(--text3);
+}
+
+.sdonut-legend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  flex: 1;
+  min-width: 140px;
+}
+
+.sdonut-legend-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--t-xs);
+}
+
+.sdonut-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.sdonut-legend-label {
+  flex: 1;
+  color: var(--text2);
+}
+
+.sdonut-legend-count {
+  font-weight: 700;
+  color: var(--text1);
+}
+
+/* Rating distribution bars */
+.srating-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-2);
+  height: 120px;
+  padding-top: var(--sp-3);
+}
+
+.srating-bar-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-1);
+  flex: 1;
+}
+
+.srating-bar-count {
+  font-size: var(--t-xs);
+  color: var(--text3);
+  min-height: 16px;
+}
+
+.srating-bar-track {
+  width: 100%;
+  height: 80px;
+  background: var(--surface-md);
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+
+.srating-bar-fill {
+  width: 100%;
+  background: var(--accent);
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+  transition: height 0.6s var(--ease-out);
+  min-height: 2px;
+}
+
+.srating-bar-fill--avg {
+  background: #f59e0b;
+}
+
+.srating-bar-label {
+  font-size: var(--t-xs);
+  color: var(--text3);
+  font-weight: 600;
+}
+
+/* Genre / year horizontal bars */
+.sgenre-bars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.sgenre-bar-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.sgenre-bar-name {
+  width: 100px;
+  font-size: var(--t-xs);
+  color: var(--text2);
+  text-align: right;
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sgenre-bar-track {
+  flex: 1;
+  height: 10px;
+  background: var(--surface-md);
+  border-radius: 100px;
+  overflow: hidden;
+}
+
+.sgenre-bar-fill {
+  height: 100%;
+  border-radius: 100px;
+  transition: width 0.6s var(--ease-out);
+  min-width: 4px;
+}
+
+.sgenre-bar-count {
+  width: 28px;
+  font-size: var(--t-xs);
+  font-weight: 700;
+  color: var(--text2);
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* Activity heatmap */
+.sheatmap-wrap {
+  overflow-x: auto;
+}
+
+.sheatmap-months {
+  display: grid;
+  grid-auto-flow: column;
+  font-size: var(--t-xs);
+  color: var(--text3);
+  margin-bottom: var(--sp-1);
+  padding-left: 0;
+}
+
+.sheatmap-grid {
+  display: flex;
+  gap: 3px;
+}
+
+.sheatmap-week {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.sheatmap-cell {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--surface-md);
+  transition: background var(--dur-fast);
+}
+
+.sheatmap-cell--0 { background: var(--surface-md); }
+.sheatmap-cell--1 { background: rgba(124,58,237,0.25); }
+.sheatmap-cell--2 { background: rgba(124,58,237,0.45); }
+.sheatmap-cell--3 { background: rgba(124,58,237,0.70); }
+.sheatmap-cell--4 { background: var(--accent); }
+.sheatmap-cell--future { background: transparent; border: 1px solid var(--border); }
+
+.sheatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-top: var(--sp-3);
+}
+
+.sheatmap-legend__label {
+  font-size: var(--t-xs);
+  color: var(--text3);
+}
+
+.sheatmap-summary {
+  font-size: var(--t-xs);
+  color: var(--text3);
+  margin-top: var(--sp-2);
+}
+
+/* Streak card */
+.sstreak-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  padding: var(--sp-3) 0;
+}
+
+.sstreak-item {
+  text-align: center;
+  flex: 1;
+  min-width: 80px;
+}
+
+.sstreak-item__num {
+  font-size: var(--t-2xl);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  margin-bottom: var(--sp-1);
+}
+
+.sstreak-item__label {
+  font-size: var(--t-xs);
+  font-weight: 600;
+  color: var(--text2);
+  margin-bottom: 2px;
+}
+
+.sstreak-divider {
+  width: 1px;
+  height: 48px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+/* Critic profile card */
+.scritic-card {
+  padding: var(--sp-3) 0;
+}
+
+.scritic-card__label {
+  font-size: var(--t-sm);
+  font-weight: 700;
+  color: var(--text1);
+  margin-bottom: var(--sp-3);
+}
+
+.scritic-card__row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.scritic-card__score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.scritic-card__num {
+  font-size: var(--t-xl);
+  font-weight: 800;
+  color: var(--text1);
+  letter-spacing: -0.03em;
+}
+
+.scritic-card__vs {
+  font-size: var(--t-xs);
+  color: var(--text3);
+  font-weight: 600;
+}
+
+/* Top episodes list */
+.stop-ep-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.stop-ep-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2);
+  background: var(--surface-md);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  cursor: pointer;
+  transition: background var(--dur-fast), border-color var(--dur-fast);
+}
+
+.stop-ep-card:hover {
+  background: var(--surface-hi);
+  border-color: var(--border-md);
+}
+
+.stop-ep-card__cover {
+  width: 44px;
+  height: 60px;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  flex-shrink: 0;
+  background: var(--bg3);
+}
+
+.stop-ep-card__cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.stop-ep-card__info {
+  flex: 1;
+  min-width: 0;
+}
+
+.stop-ep-card__title {
+  font-size: var(--t-sm);
+  font-weight: 600;
+  color: var(--text1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: var(--sp-1);
+}
+
+.stop-ep-card__eps {
+  font-size: var(--t-xs);
+  color: var(--text3);
+  margin-bottom: var(--sp-1);
+}
+
+.stop-ep-card__bar {
+  height: 3px;
+  background: var(--border);
+  border-radius: 100px;
+  overflow: hidden;
+}
+
+.stop-ep-card__fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 100px;
+}
+
+.stop-ep-card__pct {
+  font-size: var(--t-xs);
+  font-weight: 700;
+  color: var(--accent-hi);
+  flex-shrink: 0;
+  width: 36px;
+  text-align: right;
+}

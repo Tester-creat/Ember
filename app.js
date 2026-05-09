@@ -423,13 +423,14 @@ function renderContent() {
   const content = document.getElementById("content");
   if (!content) return;
   switch (currentTab) {
-    case "home": content.innerHTML = renderHome(); break;
-    case "browse": content.innerHTML = renderBrowse(); break;
+    case "home":     content.innerHTML = renderHome();     break;
+    case "browse":   content.innerHTML = renderBrowse();   break;
     case "seasonal": content.innerHTML = renderSeasonal(); break;
-    case "search": content.innerHTML = renderSearch(); break;
-    case "library": content.innerHTML = renderLibrary(); break;
-    case "watch": content.innerHTML = renderWatch(); break;
-    default: content.innerHTML = renderHome();
+    case "search":   content.innerHTML = renderSearch();   break;
+    case "library":  content.innerHTML = renderLibrary();  break;
+    case "watch":    content.innerHTML = renderWatch();    break;
+    case "stats":    content.innerHTML = renderStats();    break;
+    default:         content.innerHTML = renderHome();
   }
   afterRender();
 }
@@ -466,10 +467,8 @@ function renderHome() {
   const entries = getAnimeEntries();
   const watching = entries.filter(e => e.status === "watching").sort((a, b) => (b.lastWatched || 0) - (a.lastWatched || 0));
   const completed = entries.filter(e => e.status === "completed").sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0)).slice(0, 20);
-  const stats = entries.length ? getLibraryStats() : null;
   return `
     ${watching.length ? renderContinueWatching(watching) : ""}
-    ${stats ? renderStatsDashboard(stats) : ""}
     <section class="section">
       <div class="section__head">
         <div class="section__title">Trending Now</div>
@@ -510,49 +509,435 @@ function getDisplayTitle(entry) {
 }
 
 /* ══ STATS ═════════════════════════════════════════════════════ */
-function getLibraryStats() {
+
+// ── Status labels used in the Stats tab ──────────────────────────
+const STATS_STATUS_LABELS = {
+  watching: "Watching", completed: "Completed", queued: "In Queue",
+  "plan-to-watch": "Plan to Watch", dropped: "Dropped",
+  paused: "Paused", untracked: "Untracked"
+};
+const STATS_STATUS_OPTIONS = ["watching","completed","queued","plan-to-watch","dropped","paused","untracked"];
+
+// ── Compute all analytics from localStorage entries ───────────────
+function computeStats() {
   const entries = getAnimeEntries();
-  return entries.reduce((s, e) => {
-    s.total++; s.eps += e.episodesWatched || 0;
-    if (e.status === "watching") s.watching++;
-    if (e.status === "completed") s.completed++;
-    if (e.rating > 0) { s.rated++; s.ratingSum += e.rating; }
-    return s;
-  }, { total: 0, watching: 0, completed: 0, eps: 0, rated: 0, ratingSum: 0 });
+  if (!entries.length) return null;
+
+  // Status counts
+  const statusCounts = {};
+  STATS_STATUS_OPTIONS.forEach(s => { statusCounts[s] = 0; });
+  entries.forEach(e => { statusCounts[e.status] = (statusCounts[e.status] || 0) + 1; });
+
+  // Episode & time stats
+  const totalEpisodes = entries.reduce((s, e) => s + (e.episodesWatched || 0), 0);
+  const avgEpDuration = 24; // minutes — standard anime episode
+  const totalMinutes  = totalEpisodes * avgEpDuration;
+  const totalDays     = (totalMinutes / 1440).toFixed(1);
+  const totalHours    = Math.floor(totalMinutes / 60);
+
+  // Ratings
+  const rated    = entries.filter(e => e.rating > 0);
+  const avgRating = rated.length
+    ? (rated.reduce((s, e) => s + e.rating, 0) / rated.length).toFixed(1)
+    : null;
+  const ratingDist = Array.from({ length: 10 }, (_, i) => ({
+    score: i + 1,
+    count: entries.filter(e => e.rating === i + 1).length
+  }));
+  const maxRatingCount = Math.max(...ratingDist.map(r => r.count), 1);
+
+  // Genre counts
+  const genreMap = {};
+  entries.forEach(e => (e.genres || []).forEach(g => {
+    genreMap[g] = (genreMap[g] || 0) + 1;
+  }));
+  const topGenres = Object.entries(genreMap)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 12)
+    .map(([genre, count]) => ({ genre, count }));
+  const maxGenreCount = topGenres.length ? topGenres[0].count : 1;
+
+  // Year distribution
+  const yearMap = {};
+  entries.forEach(e => {
+    const yr = e.year || 0;
+    if (yr > 0) yearMap[yr] = (yearMap[yr] || 0) + 1;
+  });
+  const yearDist = Object.entries(yearMap)
+    .sort((a, b) => Number(a[0]) - Number(b[0]))
+    .map(([year, count]) => ({ year: Number(year), count }));
+  const maxYearCount = yearDist.length ? Math.max(...yearDist.map(y => y.count)) : 1;
+
+  // Activity heatmap — last 365 days from sessionLog
+  const now     = Date.now();
+  const oneYear = 365 * 24 * 60 * 60 * 1000;
+  const dayMap  = {};
+  entries.forEach(e => {
+    (e.sessionLog || []).forEach(ts => {
+      if (ts > 0 && now - ts < oneYear) {
+        const d   = new Date(ts);
+        const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        dayMap[key] = (dayMap[key] || 0) + 1;
+      }
+    });
+  });
+  const maxDayCount = Math.max(...Object.values(dayMap), 1);
+
+  // Streak calculation
+  let currentStreak = 0, longestStreak = 0, streak = 0;
+  const today = new Date(); today.setHours(0,0,0,0);
+  for (let i = 0; i < 365; i++) {
+    const d   = new Date(today); d.setDate(d.getDate() - i);
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    if (dayMap[key]) {
+      streak++;
+      if (i === 0 || i === 1) currentStreak = streak;
+      longestStreak = Math.max(longestStreak, streak);
+    } else {
+      if (i > 1) streak = 0;
+    }
+  }
+
+  // Completion rate (started = watching + completed + dropped + paused)
+  const started        = entries.filter(e => ['watching','completed','dropped','paused'].includes(e.status)).length;
+  const completedCount = statusCounts['completed'] || 0;
+  const completionRate = started > 0 ? Math.round((completedCount / started) * 100) : 0;
+
+  // Top anime by episodes watched
+  const topByEpisodes = [...entries]
+    .filter(e => e.episodesWatched > 0)
+    .sort((a, b) => (b.episodesWatched || 0) - (a.episodesWatched || 0))
+    .slice(0, 5);
+
+  // Critic profile — your avg vs AniList avg
+  const bothScored = entries.filter(e => e.rating > 0 && e.averageScore > 0);
+  const avgAniList = bothScored.length
+    ? (bothScored.reduce((s, e) => s + e.averageScore, 0) / bothScored.length / 10).toFixed(1)
+    : null;
+  const scoreDiff = (avgRating && avgAniList)
+    ? (parseFloat(avgRating) - parseFloat(avgAniList)).toFixed(1)
+    : null;
+
+  // Most active month this year
+  const thisYear  = new Date().getFullYear();
+  const monthMap  = {};
+  entries.forEach(e => {
+    (e.sessionLog || []).forEach(ts => {
+      if (ts > 0) {
+        const d = new Date(ts);
+        if (d.getFullYear() === thisYear) {
+          monthMap[d.getMonth()] = (monthMap[d.getMonth()] || 0) + 1;
+        }
+      }
+    });
+  });
+  const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const mostActiveMonth = Object.keys(monthMap).length
+    ? MONTH_NAMES[Number(Object.entries(monthMap).sort((a,b) => b[1]-a[1])[0][0])]
+    : null;
+
+  return {
+    total: entries.length, statusCounts, totalEpisodes, totalDays, totalHours,
+    avgRating, ratingDist, maxRatingCount, topGenres, maxGenreCount,
+    yearDist, maxYearCount, dayMap, maxDayCount,
+    currentStreak, longestStreak, completionRate,
+    topByEpisodes, avgAniList, scoreDiff, bothScored: bothScored.length,
+    mostActiveMonth, rated: rated.length
+  };
 }
 
-function renderStatsDashboard(stats) {
-  const avg = stats.rated > 0 ? (stats.ratingSum / stats.rated).toFixed(1) : "--";
-  const rate = stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0;
-  return `<section class="section">
-    <div class="section__head"><div class="section__title">Library Overview</div></div>
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-card__value">${stats.total}</div>
-        <div class="stat-card__label">Collection</div>
+// ── Activity heatmap (last 52 weeks) ─────────────────────────────
+function renderStatsHeatmap(dayMap, maxDayCount) {
+  const weeks = [];
+  const today = new Date(); today.setHours(0,0,0,0);
+  const start = new Date(today);
+  start.setDate(start.getDate() - 364);
+  start.setDate(start.getDate() - start.getDay()); // align to Sunday
+
+  const monthLabels = [];
+  let lastMonth = -1, weekIndex = 0;
+  const d = new Date(start);
+
+  while (d <= today) {
+    const week = [];
+    for (let dow = 0; dow < 7; dow++) {
+      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      const count    = dayMap[key] || 0;
+      const isFuture = d > today;
+      const intensity = isFuture ? 0 : count === 0 ? 0 : Math.ceil((count / maxDayCount) * 4);
+      week.push({ key, count, intensity, isFuture });
+      if (d.getMonth() !== lastMonth && dow === 0) {
+        monthLabels.push({ index: weekIndex, label: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()] });
+        lastMonth = d.getMonth();
+      }
+      d.setDate(d.getDate() + 1);
+    }
+    weeks.push(week);
+    weekIndex++;
+  }
+
+  const totalSessions = Object.values(dayMap).reduce((s, v) => s + v, 0);
+  const activeDays    = Object.keys(dayMap).length;
+
+  const monthRow = `<div class="sheatmap-months">${monthLabels.map(m => `<span style="grid-column:${m.index+1}">${m.label}</span>`).join('')}</div>`;
+  const grid     = `<div class="sheatmap-grid">${weeks.map(week =>
+    `<div class="sheatmap-week">${week.map(cell =>
+      `<div class="sheatmap-cell sheatmap-cell--${cell.intensity}${cell.isFuture ? ' sheatmap-cell--future' : ''}" title="${cell.isFuture ? '' : cell.count > 0 ? cell.count + ' session' + (cell.count > 1 ? 's' : '') + ' on ' + cell.key : 'No activity on ' + cell.key}"></div>`
+    ).join('')}</div>`
+  ).join('')}</div>`;
+
+  return `<div class="sheatmap-wrap">
+    ${monthRow}
+    ${grid}
+    <div class="sheatmap-legend">
+      <span class="sheatmap-legend__label">Less</span>
+      <div class="sheatmap-cell sheatmap-cell--0"></div>
+      <div class="sheatmap-cell sheatmap-cell--1"></div>
+      <div class="sheatmap-cell sheatmap-cell--2"></div>
+      <div class="sheatmap-cell sheatmap-cell--3"></div>
+      <div class="sheatmap-cell sheatmap-cell--4"></div>
+      <span class="sheatmap-legend__label">More</span>
+    </div>
+    <div class="sheatmap-summary">${totalSessions} sessions across ${activeDays} active days in the last year</div>
+  </div>`;
+}
+
+// ── SVG donut chart for status distribution ───────────────────────
+function renderStatsDonut(statusCounts, total) {
+  const STATUS_COLORS = {
+    watching: '#3b9eff', completed: '#22c55e', queued: '#f59e0b',
+    'plan-to-watch': '#a78bfa', dropped: '#ef4444',
+    paused: '#fbbf24', untracked: '#50506a'
+  };
+  const r = 54, cx = 64, cy = 64, circumference = 2 * Math.PI * r;
+  let offset = 0;
+  const segments = STATS_STATUS_OPTIONS
+    .filter(s => statusCounts[s] > 0)
+    .map(s => {
+      const pct  = statusCounts[s] / total;
+      const dash = pct * circumference;
+      const seg  = { status: s, count: statusCounts[s], pct: Math.round(pct * 100), dash, offset, color: STATUS_COLORS[s] };
+      offset += dash;
+      return seg;
+    });
+
+  const arcs = segments.map(seg =>
+    `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none"
+      stroke="${seg.color}" stroke-width="18"
+      stroke-dasharray="${seg.dash} ${circumference - seg.dash}"
+      stroke-dashoffset="${circumference - seg.offset}"
+      transform="rotate(-90 ${cx} ${cy})">
+      <title>${STATS_STATUS_LABELS[seg.status]}: ${seg.count} (${seg.pct}%)</title>
+    </circle>`
+  ).join('');
+
+  const legend = segments.map(seg =>
+    `<div class="sdonut-legend-item">
+      <span class="sdonut-legend-dot" style="background:${seg.color}"></span>
+      <span class="sdonut-legend-label">${STATS_STATUS_LABELS[seg.status]}</span>
+      <span class="sdonut-legend-count">${seg.count}</span>
+    </div>`
+  ).join('');
+
+  return `<div class="sdonut-wrap">
+    <svg class="sdonut-svg" viewBox="0 0 128 128">
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="18"/>
+      ${arcs}
+      <text x="${cx}" y="${cy - 6}" text-anchor="middle" class="sdonut-center-num">${total}</text>
+      <text x="${cx}" y="${cy + 12}" text-anchor="middle" class="sdonut-center-label">Total</text>
+    </svg>
+    <div class="sdonut-legend">${legend}</div>
+  </div>`;
+}
+
+// ── Main Stats tab renderer ───────────────────────────────────────
+function renderStats() {
+  const s = computeStats();
+
+  if (!s) {
+    return `<div class="section" style="min-height:60vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--sp-4);text-align:center">
+      <div style="font-size:48px;opacity:0.4">📊</div>
+      <div class="section__title">No data yet</div>
+      <p style="color:var(--text2);max-width:380px">Add anime to your library and start watching to see your personal analytics here.</p>
+      <button class="btn btn--primary" data-action="tab" data-tab="browse">Browse Anime</button>
+    </div>`;
+  }
+
+  // ── Hero stat cards ─────────────────────────────────────────────
+  const heroCards = [
+    { value: s.total,                          label: 'Total Anime',      color: 'var(--accent-hi)' },
+    { value: s.totalEpisodes.toLocaleString(), label: 'Episodes Watched', color: '#3b9eff' },
+    { value: s.totalHours.toLocaleString()+'h',label: 'Time Watched',     color: '#22c55e' },
+    { value: s.totalDays + 'd',                label: 'Days of Anime',    color: '#f59e0b' },
+    { value: s.avgRating ? '★ ' + s.avgRating : '—', label: 'Avg Rating', color: '#fbbf24' },
+    { value: s.completionRate + '%',           label: 'Completion Rate',  color: '#a78bfa' },
+  ].map(c => `<div class="sstat-hero-card">
+    <div class="sstat-hero-card__value" style="color:${c.color}">${escapeHtml(String(c.value))}</div>
+    <div class="sstat-hero-card__label">${escapeHtml(c.label)}</div>
+  </div>`).join('');
+
+  // ── Rating distribution bars ────────────────────────────────────
+  const ratingBars = s.ratingDist.map(r => {
+    const h     = s.maxRatingCount > 0 ? Math.round((r.count / s.maxRatingCount) * 100) : 0;
+    const isAvg = s.avgRating && Math.round(parseFloat(s.avgRating)) === r.score;
+    return `<div class="srating-bar-col">
+      <div class="srating-bar-count">${r.count > 0 ? r.count : ''}</div>
+      <div class="srating-bar-track">
+        <div class="srating-bar-fill${isAvg ? ' srating-bar-fill--avg' : ''}" style="height:${h}%"></div>
       </div>
-      <div class="stat-card">
-        <div class="stat-card__value" style="color:var(--accent)">${stats.watching}</div>
-        <div class="stat-card__label">Watching</div>
+      <div class="srating-bar-label">${r.score}</div>
+    </div>`;
+  }).join('');
+
+  // ── Genre horizontal bars ───────────────────────────────────────
+  const genreBars = s.topGenres.map((g, i) => {
+    const w   = Math.round((g.count / s.maxGenreCount) * 100);
+    const hue = (i * 28) % 360;
+    return `<div class="sgenre-bar-row">
+      <div class="sgenre-bar-name">${escapeHtml(g.genre)}</div>
+      <div class="sgenre-bar-track">
+        <div class="sgenre-bar-fill" style="width:${w}%;background:hsl(${hue},65%,60%)"></div>
       </div>
-      <div class="stat-card">
-        <div class="stat-card__value" style="color:var(--success)">${stats.completed}</div>
-        <div class="stat-card__label">Completed</div>
+      <div class="sgenre-bar-count">${g.count}</div>
+    </div>`;
+  }).join('');
+
+  // ── Year distribution bars ──────────────────────────────────────
+  const yearBars = s.yearDist.map(y => {
+    const w = Math.round((y.count / s.maxYearCount) * 100);
+    return `<div class="sgenre-bar-row">
+      <div class="sgenre-bar-name">${y.year}</div>
+      <div class="sgenre-bar-track">
+        <div class="sgenre-bar-fill" style="width:${w}%;background:var(--accent)"></div>
       </div>
-      <div class="stat-card">
-        <div class="stat-card__value">${stats.eps}</div>
-        <div class="stat-card__label">Episodes</div>
+      <div class="sgenre-bar-count">${y.count}</div>
+    </div>`;
+  }).join('');
+
+  // ── Top anime by episodes ───────────────────────────────────────
+  const topEpCards = s.topByEpisodes.map(e => {
+    const pct = e.episodes > 0 ? Math.round((e.episodesWatched / e.episodes) * 100) : 100;
+    return `<div class="stop-ep-card" data-action="open-watch" data-id="${e.id}" role="button" tabindex="0">
+      <div class="stop-ep-card__cover">${e.cover ? `<img src="${escapeHtml(e.cover)}" alt="">` : ''}</div>
+      <div class="stop-ep-card__info">
+        <div class="stop-ep-card__title">${escapeHtml(getDisplayTitle(e))}</div>
+        <div class="stop-ep-card__eps">${e.episodesWatched} / ${e.episodes || '?'} eps</div>
+        <div class="stop-ep-card__bar"><div class="stop-ep-card__fill" style="width:${pct}%"></div></div>
       </div>
-      <div class="stat-card">
-        <div class="stat-card__value" style="color:var(--accent-secondary)">${avg}</div>
-        <div class="stat-card__label">Avg Rating</div>
+      <div class="stop-ep-card__pct">${pct}%</div>
+    </div>`;
+  }).join('');
+
+  // ── Critic profile card ─────────────────────────────────────────
+  let criticHtml = '';
+  if (s.scoreDiff !== null && s.bothScored >= 3) {
+    const diff  = parseFloat(s.scoreDiff);
+    const label = diff > 0.5 ? 'Generous Rater 😊' : diff < -0.5 ? 'Harsh Critic 🧐' : 'Aligned with Community 🎯';
+    const desc  = diff > 0.5
+      ? `You rate anime ${s.scoreDiff} points higher than the AniList community average.`
+      : diff < -0.5
+      ? `You rate anime ${Math.abs(diff).toFixed(1)} points lower than the AniList community average.`
+      : `Your ratings closely match the AniList community consensus.`;
+    criticHtml = `<div class="scritic-card">
+      <div class="scritic-card__label">${label}</div>
+      <div class="scritic-card__row">
+        <div class="scritic-card__score"><span class="scritic-card__num">${s.avgRating}</span><span style="color:var(--text2);font-size:var(--t-xs)">Your avg</span></div>
+        <div class="scritic-card__vs">vs</div>
+        <div class="scritic-card__score"><span class="scritic-card__num">${s.avgAniList}</span><span style="color:var(--text2);font-size:var(--t-xs)">AniList avg</span></div>
       </div>
-      <div class="stat-card">
-        <div class="stat-card__value">${rate}%</div>
-        <div class="stat-card__label">Efficiency</div>
+      <div style="color:var(--text2);font-size:var(--t-xs);margin-top:var(--sp-2)">${escapeHtml(desc)}</div>
+      <div style="color:var(--text3);font-size:var(--t-xs);margin-top:var(--sp-1)">Based on ${s.bothScored} rated anime</div>
+    </div>`;
+  }
+
+  // ── Streak card ─────────────────────────────────────────────────
+  const streakHtml = `<div class="sstreak-card">
+    <div class="sstreak-item">
+      <div class="sstreak-item__num" style="color:var(--accent-hi)">${s.currentStreak}</div>
+      <div class="sstreak-item__label">Current Streak</div>
+      <div style="color:var(--text3);font-size:var(--t-xs)">days</div>
+    </div>
+    <div class="sstreak-divider"></div>
+    <div class="sstreak-item">
+      <div class="sstreak-item__num" style="color:#f59e0b">${s.longestStreak}</div>
+      <div class="sstreak-item__label">Longest Streak</div>
+      <div style="color:var(--text3);font-size:var(--t-xs)">days</div>
+    </div>
+    ${s.mostActiveMonth ? `<div class="sstreak-divider"></div>
+    <div class="sstreak-item">
+      <div class="sstreak-item__num" style="color:#22c55e">${escapeHtml(s.mostActiveMonth)}</div>
+      <div class="sstreak-item__label">Most Active Month</div>
+      <div style="color:var(--text3);font-size:var(--t-xs)">${new Date().getFullYear()}</div>
+    </div>` : ''}
+  </div>`;
+
+  return `<div class="section">
+    <div class="section__head" style="margin-bottom:var(--sp-5)">
+      <div>
+        <div class="section__title">Your Anime Stats</div>
+        <div style="color:var(--text2);font-size:var(--t-sm);margin-top:var(--sp-1)">A deep dive into your watching history and habits</div>
       </div>
     </div>
-  </section>`;
+
+    <!-- Hero number cards -->
+    <div class="sstat-hero-grid">${heroCards}</div>
+
+    <!-- Row 1: Donut + Rating distribution -->
+    <div class="sstats-row sstats-row--2col">
+      <div class="sstats-card">
+        <div class="sstats-card__title">Library Breakdown</div>
+        <div class="sstats-card__sub">Status distribution across all ${s.total} titles</div>
+        ${renderStatsDonut(s.statusCounts, s.total)}
+      </div>
+      <div class="sstats-card">
+        <div class="sstats-card__title">Your Rating Distribution</div>
+        <div class="sstats-card__sub">${s.rated} rated anime · avg ${s.avgRating || '—'} / 10</div>
+        <div class="srating-bars">${ratingBars}</div>
+      </div>
+    </div>
+
+    <!-- Row 2: Top genres -->
+    <div class="sstats-card">
+      <div class="sstats-card__title">Top Genres in Your Library</div>
+      <div class="sstats-card__sub">Ranked by number of anime per genre</div>
+      <div class="sgenre-bars">${genreBars}</div>
+    </div>
+
+    <!-- Row 3: Activity heatmap -->
+    <div class="sstats-card">
+      <div class="sstats-card__title">Watch Activity — Last 12 Months</div>
+      <div class="sstats-card__sub">Each cell is one day · darker = more sessions</div>
+      ${renderStatsHeatmap(s.dayMap, s.maxDayCount)}
+    </div>
+
+    <!-- Row 4: Streaks + Critic profile -->
+    <div class="sstats-row sstats-row--2col">
+      <div class="sstats-card">
+        <div class="sstats-card__title">Watching Streaks</div>
+        <div class="sstats-card__sub">Consecutive days with watch sessions</div>
+        ${streakHtml}
+      </div>
+      ${criticHtml ? `<div class="sstats-card">
+        <div class="sstats-card__title">Critic Profile</div>
+        <div class="sstats-card__sub">How your taste compares to AniList</div>
+        ${criticHtml}
+      </div>` : ''}
+    </div>
+
+    <!-- Row 5: Most watched anime -->
+    ${s.topByEpisodes.length ? `<div class="sstats-card">
+      <div class="sstats-card__title">Most Watched Anime</div>
+      <div class="sstats-card__sub">By episodes watched</div>
+      <div class="stop-ep-list">${topEpCards}</div>
+    </div>` : ''}
+
+    <!-- Row 6: Anime by release year -->
+    <div class="sstats-card">
+      <div class="sstats-card__title">Anime by Release Year</div>
+      <div class="sstats-card__sub">Which eras you watch most</div>
+      <div class="sgenre-bars">${yearBars}</div>
+    </div>
+  </div>`;
 }
 
 /* ══ SEASONAL ══════════════════════════════════════════════════ */
