@@ -17,7 +17,8 @@ export default function Hero() {
     const entries = Object.values(userData).filter(e => e && e.id);
     let heroItems = entries
       .filter(e => e.status === "watching")
-      .sort((a, b) => (b.lastWatched || 0) - (a.lastWatched || 0));
+      .sort((a, b) => (b.lastWatched || 0) - (a.lastWatched || 0))
+      .slice(0, 10); // Limit to max 10 active watching items
 
     if (heroItems.length < 5) {
       const trending = (browseData.results || []).filter(a => !heroItems.some(i => String(i.id) === String(a.id)));

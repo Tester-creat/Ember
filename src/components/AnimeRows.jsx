@@ -10,7 +10,7 @@ export function AnimeCard({ anime, entry, onOpenDetail, onOpenStatusPicker }) {
 
   return (
     <div className="anime-card" onClick={() => onOpenDetail(anime || entry)}>
-      <div className="anime-card__cover">
+      <div className="anime-card__media">
         {cover ? (
           <img src={cover} alt={title} loading="lazy" className="anime-card__img" />
         ) : (
@@ -18,10 +18,10 @@ export function AnimeCard({ anime, entry, onOpenDetail, onOpenStatusPicker }) {
         )}
         <div className="anime-card__overlay">
           <div className="anime-card__score">★ {score ? (score / 10).toFixed(1) : '?.?'}</div>
-          {status && <div className="anime-card__status-badge">{getStatusLabel(status)}</div>}
+          {status && <div className="status-badge" data-status={status}>{getStatusLabel(status)}</div>}
         </div>
       </div>
-      <div className="anime-card__info">
+      <div className="anime-card__body">
         <div className="anime-card__title">{title}</div>
         <div className="anime-card__meta">
           {(anime || entry).year || ''} · {(anime || entry).format || ''}

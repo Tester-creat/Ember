@@ -1,30 +1,67 @@
 
-import React from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useAnimeData } from '../hooks/useAnimeData';
 import { AnimeCard, MarqueeRow } from '../components/AnimeRows';
 import { LIBRARY_FILTER_STATUSES, getStatusLabel } from '../utils/animeUtils';
 
+const BATCH_SIZE = 24;
+
 export default function Library({ onOpenDetail }) {
   const { userData, libraryFilter, setLibraryFilter } = useAnimeData();
+  const [visibleCount, setVisibleCount] = useState(BATCH_SIZE);
+  const observerTarget = useRef(null);
   
-  const entries = Object.values(userData).filter(e => e && e.id);
-  const filtered = libraryFilter === 'all' 
-    ? entries 
-    : entries.filter(e => e.status === libraryFilter);
+  const entries = useMemo(() => Object.values(userData).filter(e => e && e.id), [userData]);
+  
+  const filtered = useMemo(() => {
+    const items = libraryFilter === 'all' 
+      ? entries 
+      : entries.filter(e => e.status === libraryFilter);
+    
+    // Sort logic
+    if (libraryFilter === 'watching') {
+      return items.sort((a, b) => (b.lastWatched || 0) - (a.lastWatched || 0));
+    } else if (libraryFilter === 'completed') {
+      return items.sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
+    }
+    return items;
+  }, [entries, libraryFilter]);
 
-  // Group by status for 'all' view, adhering strictly to LIBRARY_FILTER_STATUSES order
-  const groups = libraryFilter === 'all' 
-    ? LIBRARY_FILTER_STATUSES.filter(s => s !== 'all').map(s => {
-        let items = entries.filter(e => e.status === s);
-        // Sort active engagement
-        if (s === 'watching') {
-          items = items.sort((a, b) => (b.lastWatched || 0) - (a.lastWatched || 0));
-        } else if (s === 'completed') {
-          items = items.sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
+  // Reset visible count on filter change
+  useEffect(() => {
+    setVisibleCount(BATCH_SIZE);
+  }, [libraryFilter]);
+
+  // Infinite scroll observer
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries[0].isIntersecting) {
+          setVisibleCount(prev => prev + BATCH_SIZE);
         }
-        return { status: s, label: getStatusLabel(s), items };
-      }).filter(g => g.items.length > 0)
-    : [];
+      },
+      { threshold: 0.1, rootMargin: '200px' }
+    );
+
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current);
+    }
+
+    return () => observer.disconnect();
+  }, [filtered.length]);
+
+  const groups = useMemo(() => {
+    if (libraryFilter !== 'all') return [];
+    return LIBRARY_FILTER_STATUSES.filter(s => s !== 'all').map(s => {
+      let items = entries.filter(e => e.status === s);
+      if (s === 'watching') {
+        items = items.sort((a, b) => (b.lastWatched || 0) - (a.lastWatched || 0));
+      } else if (s === 'completed') {
+        items = items.sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
+      }
+      return { status: s, label: getStatusLabel(s), items };
+    }).filter(g => g.items.length > 0);
+  }, [entries, libraryFilter]);
 
   return (
     <div className="section">
@@ -39,7 +76,6 @@ export default function Library({ onOpenDetail }) {
       <div className="filter-bar">
         {LIBRARY_FILTER_STATUSES.map(status => {
           const count = status === 'all' ? entries.length : entries.filter(e => e.status === status).length;
-          // Only show filter buttons that actually have items, except for 'all' and a few key ones
           if (count === 0 && !['all', 'watching', 'plan-to-watch', 'completed'].includes(status)) return null;
           
           return (
@@ -63,7 +99,6 @@ export default function Library({ onOpenDetail }) {
                 {group.label}
               </h3>
               {group.status === 'watching' ? (
-                // Use a horizontal scrolling row for "Watching"
                 <div className="media-row">
                   <div className="media-row__viewport" style={{ overflowX: 'auto', paddingBottom: 'var(--sp-4)' }}>
                     <div className="media-row__track">
@@ -75,7 +110,7 @@ export default function Library({ onOpenDetail }) {
                 </div>
               ) : (
                 <div className="media-grid">
-                  {group.items.map(entry => (
+                  {group.items.slice(0, group.status === 'completed' ? visibleCount : 999).map(entry => (
                     <AnimeCard key={entry.id} entry={entry} onOpenDetail={onOpenDetail} />
                   ))}
                 </div>
@@ -84,10 +119,14 @@ export default function Library({ onOpenDetail }) {
           ))
         ) : (
           <div className="media-grid">
-            {filtered.map(entry => (
+            {filtered.slice(0, visibleCount).map(entry => (
               <AnimeCard key={entry.id} entry={entry} onOpenDetail={onOpenDetail} />
             ))}
           </div>
+        )}
+
+        {filtered.length > visibleCount && (
+          <div ref={observerTarget} style={{ height: '20px', margin: '20px 0' }} />
         )}
 
         {entries.length === 0 && (

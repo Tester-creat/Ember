@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAnimeData, AnimeProvider } from './hooks/useAnimeData';
+import { usePerformanceMonitor } from './hooks/usePerformanceMonitor';
 import Navbar from './components/Navbar';
 import MobileBar from './components/MobileBar';
 import Hero from './components/Hero';
@@ -16,6 +17,7 @@ import './index.css';
 function AppContent() {
   const { currentTab, setCurrentTab, setBrowseData, currentWatchId, setCurrentWatchId, addToLibrary } = useAnimeData();
   const [selectedAnime, setSelectedAnime] = useState(null);
+  const { fps } = usePerformanceMonitor();
 
   // Initial Load
   useEffect(() => {
@@ -63,23 +65,40 @@ function AppContent() {
 
       <MobileBar />
 
+      {/* Performance Indicator */}
+      <div className="perf-stats" style={{
+        position: 'fixed',
+        bottom: '80px',
+        right: '20px',
+        background: 'rgba(0,0,0,0.6)',
+        backdropFilter: 'blur(10px)',
+        padding: '4px 8px',
+        borderRadius: '4px',
+        fontSize: '10px',
+        color: fps < 30 ? '#ff4d4d' : '#4dff4d',
+        zIndex: 9999,
+        pointerEvents: 'none',
+        fontFamily: 'monospace',
+        opacity: 0.6
+      }}>
+        FPS: {fps}
+      </div>
+
       {/* Detail Overlay */}
       {selectedAnime && (
-        <div className="overlay" style={{ display: 'flex' }} onClick={() => setSelectedAnime(null)}>
-          <div className="overlay__content" onClick={e => e.stopPropagation()}>
-            <button className="overlay__close" onClick={() => setSelectedAnime(null)}>×</button>
-            <div className="overlay__body">
-              <div className="overlay__header">
-                <img src={selectedAnime.banner || selectedAnime.cover} alt="" className="overlay__banner" />
-                <div className="overlay__title-area">
-                  <h2 className="overlay__title">{selectedAnime.title}</h2>
-                  <div className="overlay__meta">
-                    {selectedAnime.year} · {selectedAnime.format} · {selectedAnime.averageScore}%
-                  </div>
-                </div>
+        <div className="overlay is-open" onClick={() => setSelectedAnime(null)}>
+          <div className="overlay-card" onClick={e => e.stopPropagation()}>
+            <div className="overlay-card__media">
+               <img src={selectedAnime.banner || selectedAnime.cover} alt="" className="cover-media__img" />
+            </div>
+            <div className="overlay-card__content">
+              <button className="btn btn--glass btn--sm" style={{ alignSelf: 'flex-end' }} onClick={() => setSelectedAnime(null)}>Close</button>
+              <h2 className="overlay-card__title">{selectedAnime.title}</h2>
+              <div className="overlay-card__meta" style={{ color: 'var(--accent-hi)', fontWeight: '600' }}>
+                {selectedAnime.year} · {selectedAnime.format} · {selectedAnime.averageScore}%
               </div>
-              <div className="overlay__desc" dangerouslySetInnerHTML={{ __html: selectedAnime.description }} />
-              <div className="overlay__actions">
+              <div className="overlay-card__text" dangerouslySetInnerHTML={{ __html: selectedAnime.description }} />
+              <div className="overlay-card__actions" style={{ display: 'flex', gap: 'var(--sp-3)', marginTop: 'auto' }}>
                 <button className="btn btn--primary" onClick={() => {
                   setCurrentWatchId(selectedAnime.id);
                   setCurrentTab('watch');

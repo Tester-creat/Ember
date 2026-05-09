@@ -7,12 +7,18 @@ import { sortCompletedEntries, getDisplayTitle, getCoverSrc } from '../utils/ani
 export default function Home({ onOpenDetail }) {
   const { userData, browseData, setCurrentTab, setCurrentWatchId } = useAnimeData();
   
+  const trendingLimit = 25;
+  const continueLimit = 15;
+  const completedLimit = 30;
+
   const entries = Object.values(userData).filter(e => e && e.id);
   const watching = entries
     .filter(e => e.status === "watching")
-    .sort((a, b) => (b.lastWatched || 0) - (a.lastWatched || 0));
+    .sort((a, b) => (b.lastWatched || 0) - (a.lastWatched || 0))
+    .slice(0, continueLimit);
   
-  const completed = sortCompletedEntries(entries.filter(e => e.status === "completed"));
+  const completed = sortCompletedEntries(entries.filter(e => e.status === "completed")).slice(0, completedLimit);
+  const trendingItems = (browseData.results || []).slice(0, trendingLimit);
 
   return (
     <div className="home-content">
@@ -21,7 +27,7 @@ export default function Home({ onOpenDetail }) {
           <div className="section__title">Trending Now</div>
           <button className="btn btn--sm btn--glass" onClick={() => setCurrentTab('browse')}>View All</button>
         </div>
-        <MarqueeRow items={browseData.results} onOpenDetail={onOpenDetail} />
+        <MarqueeRow items={trendingItems} onOpenDetail={onOpenDetail} />
       </section>
 
       {watching.length > 0 && (
