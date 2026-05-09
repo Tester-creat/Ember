@@ -271,59 +271,29 @@ a { color: inherit; text-decoration: none; }
   margin-left: auto;
 }
 
-.nav__search {
+.nav__search-icon-btn {
   display: flex;
   align-items: center;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  padding: var(--sp-1) var(--sp-3);
-  border-radius: var(--r);
-  width: 220px;
-  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
-}
-
-.nav__search:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-dim);
-}
-
-.nav__search-icon {
-  width: 15px;
-  height: 15px;
-  opacity: 0.5;
-  flex-shrink: 0;
-}
-
-.nav__search input {
-  background: none;
-  border: none;
-  color: var(--text1);
-  margin-left: var(--sp-2);
-  width: 100%;
-  font-size: var(--t-sm);
-  outline: none;
-}
-
-.nav__search input::placeholder { color: var(--text3); }
-
-/* Mobile search button */
-.mobile-search-btn {
-  display: none;
+  justify-content: center;
   width: var(--touch-min);
   height: var(--touch-min);
   border-radius: var(--r);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  align-items: center;
-  justify-content: center;
+  background: none;
+  border: none;
   color: var(--text2);
-  transition: background var(--dur-fast), border-color var(--dur-fast);
+  transition: background var(--dur-fast), color var(--dur-fast);
+  cursor: pointer;
 }
 
-.mobile-search-btn:hover {
+.nav__search-icon-btn:hover {
   background: var(--surface-md);
-  border-color: var(--border-md);
   color: var(--text1);
+}
+
+.nav__search-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
 }
 
 /* Mobile bottom nav */
@@ -381,7 +351,6 @@ a { color: inherit; text-decoration: none; }
 
 @media (max-width: 767px) {
   .mobile-bar { display: flex; }
-  .mobile-search-btn { display: flex; }
   .nav { top: 0; width: 100%; border-radius: 0; }
   .nav__inner {
     border-radius: 0;
@@ -390,7 +359,6 @@ a { color: inherit; text-decoration: none; }
     border-top: none;
     max-width: 100%;
   }
-  .nav__search { display: none; }
   .nav__links { display: none; }
 }
 

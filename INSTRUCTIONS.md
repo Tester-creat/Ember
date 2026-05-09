@@ -1,94 +1,108 @@
 #### **🧑 \[P\] Persona**
 
-You are a **senior vanilla JavaScript UI engineer** with deep expertise in custom dropdown components, floating layer management, and glassmorphism design systems. You build accessible, keyboard-friendly custom selects without any external libraries, and you are precise about keeping ephemeral UI state (open/closed, active group) in sync with application state (current episode) at all times.
+You are a **senior vanilla JavaScript developer** with expertise in DOM focus management, event delegation, and SPA navigation patterns. You are precise about eliminating duplicate input sources and you understand that programmatic `.focus()` calls must happen **after** the DOM has been updated — never before.
 
 ---
 
 #### **🎯 \[T\] Task**
 
-In the **Ember project** (`https://github.com/Tester-creat/Ember`), the episode grouping feature currently renders all group selectors as a **row of visible buttons** — for long series like One Piece (1,160+ episodes, 29+ groups of 40), this fills the entire episode sidebar with group buttons and pushes the actual episode list completely out of view.
+Fix a critical search UX bug in the **Ember project** (`https://github.com/Tester-creat/Ember`) where two search inputs exist simultaneously, causing focus loss, character reordering, and persistent stale text.
 
-**Replace the group button row with a single compact custom-styled dropdown** that:
-
-* Shows only one line in the sidebar when collapsed  
-* Expands into a floating scrollable list when clicked  
-* Displays and loads the correct episode group when a range is selected  
-* Stays in sync with episode navigation at all times
-
-This is a **UI-only replacement** — the 40-episode grouping logic, the `uiState` group tracking, and the `paintEpisodeList()` partial update mechanism implemented previously must remain completely intact. Only the **rendering of the group selector itself** changes.
+The fix has **four precise steps** — all must be done together, as they are one atomic change:
 
 ---
 
-#### **🎯 Precise Implementation Requirements**
+**Step 1 — Remove the navbar search input from `index.html`**
 
-**The Dropdown Button (collapsed state):**
+Locate the `.nav__search` div in `index.html`:
 
-* A single `<button class="episode-group-btn">` that spans the full width of the episode sidebar  
-* Label format: `Episodes {start} – {end} ▾` — e.g. `Episodes 1 – 40 ▾`, `Episodes 41 – 80 ▾`  
-* The label must **update automatically** whenever the active group changes — whether triggered by the user picking a group from the dropdown, clicking an episode directly, or navigating with keyboard shortcuts (`←` / `→`)  
-* The `▾` chevron must **rotate 180°** when the dropdown is open, and return to default when closed — use a CSS `transform: rotate()` transition, not a separate icon swap  
-* Styled with Ember's glassmorphism tokens: `background: var(--glass)`, `backdrop-filter: blur(...)`, `border: 1px solid var(--border)`, `border-radius: var(--radius-md)`, appropriate `--space-*` padding
+html  
+\<div class\="nav\_\_search" id\="navSearch"\>  
+  \<svg class\="nav\_\_search-icon" ...\>\</svg\>  
+  \<input type\="search" id\="globalSearch" class\="search-input" placeholder\="Search..." ...\>  
+\</div\>
 
-**The Dropdown List (expanded state):**
+Replace it with a plain icon-only button that navigates to the search tab on click:
 
-* A `<ul class="episode-group-list">` that **floats below** the button using `position: absolute` — it must not push the episode list downward or affect the layout of any surrounding elements  
-* `z-index` must be high enough to float above the episode list items below it (use `z-index: 200` or confirm against Ember's existing z-index scale)  
-* Width must match the button exactly (`width: 100%` relative to the positioned parent)  
-* Maximum height: `240px` with `overflow-y: auto` and a styled scrollbar — so even 29+ groups remain navigable without the list growing infinitely tall  
-* Each list item: `<li data-group="{index}">Episodes {start} – {end}</li>` — full-width, hover state using `var(--glass-hover)` or equivalent, `cursor: pointer`  
-* The **currently active group** must be visually highlighted in the list (e.g. `background: var(--accent)` at reduced opacity, or a left accent border) so the user can see at a glance which group is loaded  
-* Styled with the same glassmorphism treatment as the button: glass background, blur, border, matching border-radius  
-* A subtle `box-shadow` to lift it above the content beneath
+html  
+\<button class\="nav\_\_search-icon-btn" id\="navSearchBtn" data-tab\="search" data-action\="tab" aria-label\="Search"\>  
+  \<svg class\="nav\_\_search-icon" viewBox\="0 0 24 24" fill\="none" stroke\="currentColor" stroke-width\="2"\>  
+    \<circle cx\="11" cy\="11" r\="8"/\>\<path d\="m21 21-4.35-4.35"/\>  
+  \</svg\>  
+\</button\>
 
-**Open/Close Behaviour:**
+* No `<input>` in the navbar. Ever. The icon is the entire affordance.  
+* The `data-tab="search"` and `data-action="tab"` attributes mean Ember's existing click delegation handles the navigation — no new JS needed for the click itself
 
-* Clicking the button toggles the dropdown open/closed  
-* Clicking **anywhere outside** the dropdown (document-level click listener) closes it — the listener must be added on open and removed on close to avoid memory leaks  
-* Pressing `Escape` while the dropdown is open must close it and return focus to the button  
-* The dropdown must also close automatically after the user selects a group (after triggering the episode list update)  
-* If the dropdown is open and `paintEpisodeList()` is called by keyboard navigation, the dropdown must close to avoid stale group labels
+---
 
-**Selecting a Group:**
+**Step 2 — Remove all `#globalSearch` input event listeners from `app.js`**
 
-* Clicking a list item must: (1) update `uiState.activeGroup` (or Ember's equivalent) to the selected group index, (2) call `paintEpisodeList()` to render that group's 40 episodes, (3) update the button label to the new range, (4) close the dropdown  
-* This must be **identical in outcome** to what happened when the old group buttons were clicked — the only difference is the trigger mechanism
+Find every event listener, handler, or reference in `app.js` tied to `#globalSearch` — this includes:
 
-**Auto-sync with Episode Navigation:**
+* Any `input`, `keyup`, `keydown`, or `change` listener on `#globalSearch`  
+* Any debounced search function triggered by `#globalSearch` value changes  
+* Any code that reads `document.getElementById('globalSearch').value` and uses it to seed the search tab's input or trigger a search  
+* Any code that sets `#globalSearch.value` from `uiState`
 
-* When the user navigates to a new episode via keyboard (`←` / `→`), episode click, or auto-next, the active group must recalculate: `activeGroup = Math.floor((episodeNumber - 1) / 40)`  
-* After recalculation, the **button label must update immediately** to reflect the new group range — even if the dropdown is closed  
-* If the new episode is in a different group than the currently loaded one, `paintEpisodeList()` must be called for the new group automatically
+**Remove all of these entirely.** The navbar input is gone — none of this logic should survive.
 
-**Visibility rule — unchanged from previous implementation:**
+---
 
-* The entire dropdown (button \+ list) must only render when total episodes exceed 40  
-* For series with 40 or fewer episodes, no group selector element must exist in the DOM at all
+**Step 3 — Auto-focus the content search input after the search tab renders**
+
+In `app.js`, find where the search tab content is rendered (the function that generates the full-width search input in `#content` — likely inside `renderSearch()` or the `case 'search':` branch of the tab renderer).
+
+After the search tab's HTML is injected into `#content`, add a programmatic focus call using `requestAnimationFrame` to guarantee the DOM has painted before focus is attempted:
+
+javascript  
+requestAnimationFrame(() \=\> {  
+  const searchInput \= document.getElementById('contentSearch'); // confirm actual ID  
+  if (searchInput) {  
+    searchInput.focus();  
+    // If navigating from the navbar button, the input value should be empty  
+    // Do NOT seed it with any value from the old \#globalSearch  
+  }  
+});
+
+* This must fire **every time** the search tab is activated — whether from the navbar button, the mobile bar Search tab, or any `data-tab="search"` trigger anywhere in the app  
+* The content search input must start **empty** on every fresh navigation to the search tab — do not preserve or transfer any previous value unless Ember already has intentional search-query persistence in `uiState` (if so, preserve that behaviour but confirm it is intentional)
+
+---
+
+**Step 4 — Clean up `uiState` and `styles.css`**
+
+* In `app.js`: if `uiState` has a `searchQuery` or similar property that was being synced to/from `#globalSearch`, confirm whether it is still needed. If it only existed to bridge the two inputs, remove it. If it drives the actual search results in the content area, keep it but ensure it is only ever written to by the content search input — never by the removed navbar input.  
+* In `styles.css`: remove or repurpose any styles scoped to `.nav__search input`, `#globalSearch`, or `.search-input` inside the nav context. The `.nav__search` container styles can be replaced with simple icon-button styles (see Format section below).  
+* The `#mobileSearchBtn` (the separate mobile search toggle button already in `index.html`) — confirm whether it duplicates the mobile bar's Search tab button. If it does, remove it; if it serves a distinct purpose (e.g. toggling a mobile search overlay), leave it untouched but ensure it also does not reference `#globalSearch`.
 
 ---
 
 #### **🗂️ \[C\] Context**
 
-**Current state of the codebase (from previous implementation):**
+**Ember's current search architecture (the broken state):**
 
-* Episode grouping is already implemented with 40-episode chunks  
-* Group selector currently renders as a row/grid of `<button>` elements — this is the element being replaced  
-* Active group is tracked in `uiState` (confirm exact property name by reading `app.js`)  
-* `paintEpisodeList()` handles all episode list DOM updates as a partial update — do NOT replace this with a full `renderApp()` call  
-* The episode sidebar has `overflow: visible` (fixed in previous implementation) to support `position: sticky` — the dropdown's `position: absolute` requires its **parent container to have `position: relative`** — verify this is set on the sidebar or group selector wrapper, and add it if missing
+* `index.html` has `<input id="globalSearch">` inside `.nav__search` in the navbar  
+* `app.js` listens to this input, and on any keystroke switches to the search tab and triggers content rendering  
+* The search tab renders a second, full-width input in `#content` for the actual search experience  
+* The first keystroke in the navbar input triggers tab switch → focus is lost from navbar input → second input appears without programmatic focus → user continues typing into second input without `S` from first input being properly transferred → character order corruption results  
+* The navbar input retains the first character typed, is never cleared, and is never properly synced
 
-**Ember design system:**
+**Ember's tab system:**
 
-* CSS custom properties: `--glass`, `--border`, `--accent`, `--space-2`, `--space-3`, `--space-4`, `--radius-sm`, `--radius-md`, `--radius-lg` — use exclusively, no hardcoded colour values  
-* Transitions: match Ember's existing transition duration (likely `0.2s ease` or `0.15s ease`) — confirm by checking existing animated elements in `styles.css`  
-* Scrollbar styling: if Ember styles scrollbars elsewhere (`::-webkit-scrollbar`), apply the same pattern to the dropdown list's scrollbar
+* Tab navigation is driven by `data-action="tab"` and `data-tab="..."` attributes via click delegation in `app.js`  
+* Switching tabs calls `renderApp()` which rebuilds `#content`  
+* After `renderApp()`, an `afterRender()` hook runs — this is the correct place to call `.focus()` on the content search input when `uiState.activeTab === 'search'`
+
+**Ember's stack:** Vanilla JS \+ HTML \+ CSS — no frameworks, no build step
 
 **Do not:**
 
-* Use any `<select>` or `<option>` elements — this must be a fully custom component  
-* Attach permanent document-level click listeners — add on open, remove on close  
-* Trigger `renderApp()` for any part of this feature — all updates are partial DOM mutations  
-* Hardcode any colours, border-radii, or spacing values — CSS custom properties only  
-* Break keyboard episode navigation (`←` / `→`), the `M` mark-watched shortcut, or provider switching
+* Add a new search input anywhere in the navbar — one input, in `#content` only  
+* Call `.focus()` synchronously immediately after `innerHTML` assignment — always use `requestAnimationFrame`  
+* Seed the content search input with any value from the removed navbar input  
+* Touch the search results rendering logic, debounce timing, or AniList API call — only the input source and focus behaviour change  
+* Remove the mobile bar's Search tab button (`data-tab="search"` in `#mobileTabs`) — that is correct and must stay
 
 ---
 
@@ -98,41 +112,32 @@ Deliver in this exact structure:
 
 **1\. Pre-flight Audit**
 
-* Confirm the exact name of the current group selector rendering code (the button row being replaced)  
-* Confirm the `uiState` property name for active group and current episode number  
-* Confirm whether the sidebar wrapper already has `position: relative` set  
-* Confirm Ember's transition duration from `styles.css`  
-* Confirm whether Ember has custom scrollbar styles to replicate
+* List every reference to `#globalSearch` or `globalSearch` in `app.js` — event listeners, value reads, value writes, uiState sync  
+* Confirm the exact ID of the content-area search input (the full-width one rendered inside `#content`)  
+* Confirm whether `afterRender()` exists and whether it already handles focus restoration for other inputs — if so, add the search focus logic there consistently  
+* Confirm whether `#mobileSearchBtn` is redundant with the mobile bar Search tab or serves a distinct purpose
 
-**2\. `app.js` — Dropdown render function**
+**2\. `index.html` changes**
 
-* `renderGroupDropdown(totalEpisodes, activeGroup)` — generates the button \+ `<ul>` HTML string  
-* Show exactly where in the episode sidebar HTML this replaces the old button row  
-* The `data-group` attribute approach for click delegation (no inline `onclick`)
+* Exact before/after for the `.nav__search` block replacement  
+* Confirm no other `<input>` or reference to `#globalSearch` remains in `index.html`
 
-**3\. `app.js` — Event handling additions**
+**3\. `app.js` changes**
 
-* Click handler for the dropdown toggle button (open/close)  
-* Click handler for list item selection (group change → `paintEpisodeList()` → label update → close)  
-* Document-level outside-click handler (add on open, remove on close)  
-* `Escape` key handler  
-* The auto-sync logic: where in the episode navigation flow the button label recalculates
+* Complete list of removed event listeners and handlers (with the code shown so the removal is auditable)  
+* The `requestAnimationFrame` focus call — exactly where it is inserted (inside `afterRender()` or equivalent, gated on `uiState.activeTab === 'search'`)  
+* Any `uiState` property cleanup
 
-**4\. `styles.css` — New rules only**
+**4\. `styles.css` changes**
 
-* `.episode-group-btn` — collapsed button styles  
-* `.episode-group-list` — floating list container (position, z-index, max-height, scroll, glass)  
-* `.episode-group-list li` — item styles including hover and active-group highlight  
-* `.episode-group-btn .chevron` — rotation transition for open/closed states  
-* Scrollbar styling for `.episode-group-list` (matching Ember's pattern)
+* Remove: styles for `#globalSearch` and `.nav__search input` in the nav context  
+* Add: `.nav__search-icon-btn` — a clean icon button style matching the nav's existing icon button pattern (no background, no border, correct sizing, hover opacity transition using Ember's design tokens)
 
 **5\. Verification Checklist**
 
-* One Piece (1,160+ ep, 29 groups): dropdown shows correctly, all 29 options in scrollable list, selecting any group loads correct episodes  
-* Short series (≤40 ep): no dropdown element exists in DOM  
-* Episode keyboard navigation (`←` / `→`) crosses a group boundary: button label updates, new group's episodes load automatically  
-* Dropdown closes on: outside click, Escape key, group selection  
-* Chevron rotates on open, returns on close  
-* No layout shift when dropdown opens — episode list stays in place, dropdown floats above it  
-* No memory leaks: document listener is removed after dropdown closes
+* Click search icon in desktop navbar → search tab opens → content search input is focused immediately → typing `SOLO` produces `SOLO` in the content input, in order  
+* No text remains in any navbar input after navigating to search (there is no navbar input)  
+* Navigate away from search tab and back → content input is focused again, starts empty  
+* Mobile bar Search tab button still works and also focuses the content input on arrival  
+* All other tabs (Home, Browse, Seasonal, Library, Stats) are completely unaffected
 

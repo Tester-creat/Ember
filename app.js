@@ -768,8 +768,12 @@ function afterRender() {
     loadSeasonal(seasonalData.season || getCurrentSeason(), seasonalData.year || new Date().getFullYear());
   }
   if (currentTab === "search") {
-    const inp = document.getElementById("searchPageInput");
-    if (inp) inp.focus();
+    requestAnimationFrame(() => {
+      const inp = document.getElementById("searchPageInput");
+      if (inp) {
+        inp.focus();
+      }
+    });
   }
   if (currentWatchId && currentTab === "watch") {
     setupWatchPlayer();
@@ -2000,6 +2004,7 @@ document.addEventListener("click", e => {
       loadSeasonal(seasonalData.season || getCurrentSeason(), seasonalData.year || new Date().getFullYear());
     }
     if (currentTab === "search") {
+      pendingSearchQuery = ""; // Clear for fresh navigation
       const inp = document.getElementById("searchPageInput");
       if (inp) inp.focus();
     }
@@ -2211,16 +2216,9 @@ document.addEventListener("click", e => {
 
 /* ══ INPUT HANDLING ══════════════════════════════════════════════ */
 document.addEventListener("input", e => {
-  if (e.target.id === "globalSearch" || e.target.id === "searchPageInput") {
+  if (e.target.id === "searchPageInput") {
     const val = e.target.value;
-    if (currentTab !== "search") {
-      pendingSearchQuery = val;
-      currentTab = "search";
-      renderContent();
-      document.getElementById("hero")?.style.setProperty("display", "none");
-    } else {
-      pendingSearchQuery = val;
-    }
+    pendingSearchQuery = val;
     handleSearchInput(val);
   }
 });
@@ -2256,8 +2254,9 @@ document.addEventListener("keydown", e => {
 
   if (e.key === "/" && !e.target.closest("input,textarea")) {
     e.preventDefault();
-    const search = document.getElementById("globalSearch");
-    if (search) search.focus();
+    currentTab = "search";
+    renderContent();
+    document.getElementById("hero")?.style.setProperty("display", "none");
   }
 
   if (e.key === "1" && !e.target.closest("input,textarea")) { e.preventDefault(); currentTab = "home"; renderContent(); updateNavActive(); document.getElementById("hero")?.style.setProperty("display", "flex"); }
@@ -2323,15 +2322,6 @@ window.addEventListener("scroll", () => {
   lastScrollY = window.scrollY;
 }, { passive: true });
 
-/* ══ MOBILE SEARCH ════════════════════════════════════════════ */
-document.getElementById("mobileSearchBtn")?.addEventListener("click", () => {
-  const search = document.getElementById("navSearch");
-  search?.classList.toggle("is-open");
-  if (search?.classList.contains("is-open")) {
-    const inp = search.querySelector(".search-input");
-    if (inp) setTimeout(() => inp.focus(), 100);
-  }
-});
 
 /* ══ INIT ═══════════════════════════════════════════════════════ */
 loadData();
