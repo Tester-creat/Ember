@@ -31,7 +31,7 @@ async function fetchAnikotoSeries(anilistId, title) {
   const needle = _normTitle(typeof title === "object" ? (title?.romaji || title?.english) : title);
   for (let page = 1; page <= 5; page++) {
     try {
-      const res = await fetch(`/api/anikoto/recent-anime?page=${page}&per_page=50`);
+      const res = await anikotoFetch(`/recent-anime?page=${page}&per_page=50`);
       const data = await res.json();
       if (!data.ok || !data.data) break;
       for (const item of data.data) {
@@ -63,7 +63,7 @@ async function fetchAnikotoEpisodeEmbedId(anikotoSeriesId, epNum, lang) {
   let episodes = anikotoEpisodeCache.get(anikotoSeriesId);
   if (!episodes) {
     try {
-      const res = await fetch(`/api/anikoto/series/${anikotoSeriesId}`);
+      const res = await anikotoFetch(`/series/${anikotoSeriesId}`);
       const data = await res.json();
       if (!data.ok || !data.data?.episodes) return null;
       episodes = data.data.episodes;
@@ -99,6 +99,12 @@ let currentProvider = 0;
 let currentLanguage = "sub";
 
 /* ══ ANIKOTO API ═══════════════════════════════════════════════ */
+function anikotoFetch(endpoint) {
+  const isLive = window.location.hostname.includes("github.io");
+  const url = isLive ? `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent('https://anikotoapi.site' + endpoint)}` : `/api/anikoto${endpoint}`;
+  return fetch(url);
+}
+
 function normalizeAnikotoItem(item) {
   const aniId = Number(item.ani_id) || 0;
   return {
@@ -128,7 +134,7 @@ function normalizeAnikotoItem(item) {
 
 async function initAnikotoCache() {
   try {
-    const res = await fetch('/api/anikoto/recent-anime?page=1&per_page=50');
+    const res = await anikotoFetch('/recent-anime?page=1&per_page=50');
     const data = await res.json();
     if (data.ok && data.data) {
       data.data.forEach(anime => {
@@ -146,7 +152,7 @@ async function findAnikotoId(anilistId) {
   if (cached) return cached;
   for (let page = 1; page <= 20; page++) {
     try {
-      const res = await fetch(`/api/anikoto/recent-anime?page=${page}&per_page=50`);
+      const res = await anikotoFetch(`/recent-anime?page=${page}&per_page=50`);
       const data = await res.json();
       if (!data.ok || !data.data) break;
       for (const anime of data.data) {
@@ -327,7 +333,7 @@ async function searchAnime(query) {
 async function loadBrowse(mode, page = 1) {
   browseData.loading = true; browseData.error = null; browseData._hasMore = false; renderContent();
   try {
-    const res = await fetch(`/api/anikoto/recent-anime?page=${page}&per_page=50`);
+    const res = await anikotoFetch(`/recent-anime?page=${page}&per_page=50`);
     const data = await res.json();
     if (!data.ok) throw new Error(data.message || 'API error');
     const raw = data.data || [];
@@ -866,7 +872,8 @@ function renderDetailOverlay(anime) {
       ${existing ? renderRatingSection(anime.id, entryRating) : ""}
       
       <div class="overlay-card__actions" style="margin-top:auto;display:flex;gap:var(--space-md)">
-        ${existing ? `<button class="btn btn--primary" data-action="open-watch" data-id="${existing.id}">Watch Now</button>` : `<button class="btn btn--primary" data-action="add-to-library" data-id="${anime.id}">Add to Library</button>`}
+        <button class="btn btn--primary" data-action="open-watch" data-id="${anime.id}">Watch Now</button>
+        ${!existing ? `<button class="btn btn--glass" data-action="add-to-library" data-id="${anime.id}">+ Library</button>` : ""}
         <button class="btn btn--glass" data-action="close-overlay">Close</button>
       </div>
     </div>
@@ -1088,7 +1095,13 @@ document.addEventListener("click", e => {
 
   if (action === "open-watch") {
     const id = Number(target.dataset.id);
+    if (!getEntry(id)) {
+      const animeStr = String(id);
+      const anime = anilistCache[animeStr] || browseData.results.find(r => String(r.id) === animeStr) || searchResults.find(r => String(r.id) === animeStr) || seasonalData.results.find(r => String(r.id) === animeStr);
+      if (anime) addToLibrary(anime);
+    }
     openWatchView(id);
+    hideOverlay();
   }
 
   if (action === "close-watch") {

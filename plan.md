@@ -63,3 +63,12 @@
    - **Root Cause:** This is **expected behavior** per the integration instructions. To prevent 10-second lookup hangs, `fetchAnikotoSeries` only scans up to 5 pages of `/recent-anime`. If an anime isn't found, it gracefully fails and triggers the VidNest fallback, which utilizes AniList IDs directly.
    - **Action:** No changes needed to the fallback logic itself, as it is functioning exactly as intended by switching to VidNest.
 
+4. **Live Site (GitHub Pages) MegaPlay Support (100% Complete ✅)**
+   - **Error:** MegaPlay immediately skips to VidNest without trying when hosted on `tester-creat.github.io`.
+   - **Root Cause:** The Anikoto API (`anikotoapi.site`) does not support CORS. On GitHub Pages, there is no Node.js `server.js` backend to act as a proxy, so requests to `/api/anikoto` return 404 HTML, causing MegaPlay to instantly fail and skip to VidNest.
+   - **Fix:** Created an `anikotoFetch()` wrapper in `app.js`. If the app detects it is running on a live site (`github.io`), it automatically routes Anikoto API requests through the public `api.codetabs.com` CORS proxy, restoring MegaPlay's functionality on the deployed static site.
+
+5. **Streamline "Watch Now" Experience (100% Complete ✅)**
+   - **Error:** User complained that they could only watch anime after manually adding it to their library.
+   - **Fix:** Redesigned the detail overlay. The primary "Watch Now" button is now always visible regardless of library status. Clicking it will implicitly add the anime to the library (since tracking requires it) and immediately launch the watch player in one seamless action.
+
