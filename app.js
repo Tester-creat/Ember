@@ -15,15 +15,85 @@ const episodeEmbedCache = {};
 const anikotoIdCache = {};
 const dubAvailable = {};
 
+// Anikoto resolution caches (keyed by anilistId / anikotoSeriesId)
+const anikotoSeriesCache = new Map();
+const anikotoEpisodeCache = new Map();
+
+// Helpers: normalise a title string for fuzzy matching
+function _normTitle(s) {
+  return String(s || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+}
+
+// Task 1 — resolve Anikoto series ID from AniList ID + romaji title
+async function fetchAnikotoSeries(anilistId, title) {
+  const key = Number(anilistId);
+  if (anikotoSeriesCache.has(key)) return anikotoSeriesCache.get(key);
+  const needle = _normTitle(typeof title === "object" ? (title?.romaji || title?.english) : title);
+  for (let page = 1; page <= 5; page++) {
+    try {
+      const res = await fetch(`/api/anikoto/recent-anime?page=${page}&per_page=50`);
+      const data = await res.json();
+      if (!data.ok || !data.data) break;
+      for (const item of data.data) {
+        // Build the anilistId → anikotoId side-cache while we scan
+        const aId = String(item.ani_id);
+        if (aId && aId !== "0" && !anikotoIdCache[aId]) anikotoIdCache[aId] = item.id;
+        // Check by AniList ID first (exact)
+        if (aId === String(anilistId)) {
+          anikotoSeriesCache.set(key, item.id);
+          return item.id;
+        }
+        // Fuzzy title match as fallback
+        const haystack = _normTitle(item.title) + " " + _normTitle(item.alternative);
+        if (needle && (haystack.includes(needle) || needle.includes(_normTitle(item.title)))) {
+          anikotoSeriesCache.set(key, item.id);
+          return item.id;
+        }
+      }
+      if (data.data.length < 50) break;
+    } catch { break; }
+  }
+  anikotoSeriesCache.set(key, null); // confirmed miss — don't re-request
+  return null;
+}
+
+// Task 2 — resolve episode_embed_id from Anikoto series
+async function fetchAnikotoEpisodeEmbedId(anikotoSeriesId, epNum, lang) {
+  if (!anikotoSeriesId) return null;
+  let episodes = anikotoEpisodeCache.get(anikotoSeriesId);
+  if (!episodes) {
+    try {
+      const res = await fetch(`/api/anikoto/series/${anikotoSeriesId}`);
+      const data = await res.json();
+      if (!data.ok || !data.data?.episodes) return null;
+      episodes = data.data.episodes;
+      anikotoEpisodeCache.set(anikotoSeriesId, episodes);
+    } catch { return null; }
+  }
+  const ep = episodes.find(e => Number(e.number) === Number(epNum));
+  if (!ep) return null;
+  // embed_url.sub / embed_url.dub are the full megaplay URLs
+  const url = (lang === "dub" ? ep.embed_url?.dub : ep.embed_url?.sub) || ep.embed_url?.sub || null;
+  return url || null;
+}
+
 const STREAM_PROVIDERS = [
   { name: "MegaPlay", active: true, idType: "anikoto",
-    buildUrl: (entry, ep, lang) => {
-      return episodeEmbedCache[`${entry.anilistId}-${ep}-${lang}`] || "";
+    async buildUrl(entry, ep, lang) {
+      try {
+        const seriesId = await fetchAnikotoSeries(entry.anilistId || entry.id, entry.title);
+        if (!seriesId) return null;
+        const url = await fetchAnikotoEpisodeEmbedId(seriesId, ep, lang);
+        return url || null;
+      } catch { return null; }
     },
-    notes: "Primary — resolved via Anikoto API (episode embed IDs)" },
+    notes: "Primary — Anikoto /series/{id} native embed (s-2 path). Highest reliability." },
   { name: "VidNest", active: true, idType: "anilist",
     buildUrl: (entry, ep, lang) => `https://vidnest.fun/anime/${entry.anilistId}/${ep}/${lang}`,
     notes: "Direct AniList ID embed. Reliable synchronous fallback." },
+  { name: "VidSrc", active: true, idType: "anilist",
+    buildUrl: (entry, ep, lang) => `https://vidsrc.cc/v2/embed/anime/${entry.anilistId}/${ep}`,
+    notes: "VidSrc anime embed. Direct AniList ID embed." }
 ];
 let currentProvider = 0;
 let currentLanguage = "sub";
@@ -205,6 +275,11 @@ async function loadSeasonal(season, year, page = 1) {
       }
     });
     seasonalData._hasMore = raw.length >= 50;
+    const filtered = raw.filter(item => {
+      const itemSeason = (item.season || '').toUpperCase();
+      const itemYear = Number(item.year);
+      return itemSeason === season && itemYear === year;
+    });
     const normalized = filtered.map(normalizeAnikotoItem);
     seasonalData.results = page === 1 ? normalized : [...seasonalData.results, ...normalized];
     seasonalData.page = page;
@@ -258,12 +333,22 @@ async function loadBrowse(mode, page = 1) {
     });
     browseData._hasMore = raw.length >= 50;
     const results = raw.map(normalizeAnikotoItem);
-    if (page === 1) browseData.results = results;
+    if (page === 1) {
+      browseData.results = results;
+      if (results[0]) updateHeroBackground(results[0]);
+    }
     else browseData.results = [...browseData.results, ...results];
     browseData.page = page;
     browseData.mode = mode;
   } catch (e) { browseData.error = e.message; console.error("loadBrowse:", e); }
   browseData.loading = false; renderContent();
+}
+
+function updateHeroBackground(anime) {
+  const heroBg = document.getElementById("heroBg");
+  if (!heroBg || !anime) return;
+  const img = anime.coverImage?.large;
+  if (img) heroBg.style.backgroundImage = `url(${img})`;
 }
 
 /* ══ UTILITY ═══════════════════════════════════════════════════ */
@@ -389,14 +474,32 @@ function renderStatsDashboard(stats) {
   const avg = stats.rated > 0 ? (stats.ratingSum / stats.rated).toFixed(1) : "--";
   const rate = stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0;
   return `<section class="section">
-    <div class="section__head"><div class="section__title">Library at a Glance</div></div>
+    <div class="section__head"><div class="section__title">Library Overview</div></div>
     <div class="stats-grid">
-      <div class="stat-card"><div class="stat-card__value">${stats.total}</div><div class="stat-card__label">Total</div></div>
-      <div class="stat-card stat-card--accent"><div class="stat-card__value">${stats.watching}</div><div class="stat-card__label">Watching</div></div>
-      <div class="stat-card stat-card--green"><div class="stat-card__value">${stats.completed}</div><div class="stat-card__label">Completed</div></div>
-      <div class="stat-card"><div class="stat-card__value">${stats.eps}</div><div class="stat-card__label">Episodes</div></div>
-      <div class="stat-card"><div class="stat-card__value">${avg}</div><div class="stat-card__label">Avg Rating</div></div>
-      <div class="stat-card"><div class="stat-card__value">${rate}%</div><div class="stat-card__label">Completion</div></div>
+      <div class="stat-card">
+        <div class="stat-card__value">${stats.total}</div>
+        <div class="stat-card__label">Collection</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__value" style="color:var(--accent)">${stats.watching}</div>
+        <div class="stat-card__label">Watching</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__value" style="color:var(--success)">${stats.completed}</div>
+        <div class="stat-card__label">Completed</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__value">${stats.eps}</div>
+        <div class="stat-card__label">Episodes</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__value" style="color:var(--accent-secondary)">${avg}</div>
+        <div class="stat-card__label">Avg Rating</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__value">${rate}%</div>
+        <div class="stat-card__label">Efficiency</div>
+      </div>
     </div>
   </section>`;
 }
@@ -532,31 +635,37 @@ function renderWatch() {
   const entry = getEntry(currentWatchId);
   if (!entry) return `<div class="empty-state"><div class="empty-state__title">Title not found</div></div>`;
   const totalEps = entry.episodes || 1;
-  const url = buildStreamUrl(entry, currentEpisode, currentLanguage, currentProvider);
   const provider = STREAM_PROVIDERS[currentProvider];
-  const hasStream = !!url;
   const canDub = dubAvailable[String(entry.anilistId)] !== false;
-  const langLabel = currentLanguage === "sub" ? "Sub" : "Dub";
   const langIcon = currentLanguage === "sub" ? "SUB" : "DUB";
-  return `<div class="section">
-    <div class="watch-layout">
-      <div>
-        <div class="watch-player">${hasStream ? `<iframe data-watch-iframe src="${escapeHtml(url)}" allow="autoplay; fullscreen" allowfullscreen></iframe>` : `<div class="empty-state"><div class="empty-state__title">No stream available</div><div class="empty-state__text">Try switching providers or check back later.</div></div>`}</div>
-        <div class="watch-meta">
-          <div class="watch-meta__title">${escapeHtml(getDisplayTitle(entry))}</div>
-          <div class="watch-meta__info">Episode ${currentEpisode} of ${totalEps} &middot; ${langLabel}</div>
-        </div>
-        <div class="watch-actions">
-          <button class="btn btn--sm btn--glass" data-action="prev-episode" ${currentEpisode <= 1 ? "disabled" : ""}>&#9664; Prev</button>
-          <button class="btn btn--sm btn--glass" data-action="next-episode" ${currentEpisode >= totalEps ? "disabled" : ""}>Next &#9654;</button>
-          ${canDub ? `<button class="btn btn--sm btn--glass ${currentLanguage === "dub" ? "is-active" : ""}" data-action="toggle-language">${langIcon}</button>` : ""}
-          <button class="btn btn--sm btn--amber" data-action="switch-provider">Provider: ${provider.name}</button>
-          <button class="btn btn--sm btn--glass" data-action="mark-watched" data-id="${entry.id}">&#10003; Mark Watched</button>
-          <button class="btn btn--sm btn--glass" data-action="close-watch">&times; Close</button>
+  return `<div class="watch-layout">
+    <div class="watch-main">
+      <div class="watch-player is-resolving">
+        <iframe data-watch-iframe allow="autoplay; fullscreen" allowfullscreen></iframe>
+      </div>
+      <div class="watch-meta" style="margin-top:var(--space-lg)">
+        <h1 class="watch-meta__title" style="font-family:var(--font-display);font-size:32px;font-weight:800">${escapeHtml(getDisplayTitle(entry))}</h1>
+        <div class="watch-meta__info" style="color:var(--text-muted);margin-top:var(--space-xs)">Episode ${currentEpisode} of ${totalEps} &bull; ${currentLanguage.toUpperCase()}</div>
+        
+        <div class="watch-actions" style="margin-top:var(--space-lg);display:flex;gap:var(--space-md);flex-wrap:wrap">
+          <div style="display:flex;gap:var(--space-sm)">
+            <button class="btn btn--glass btn--sm" data-action="prev-episode" ${currentEpisode <= 1 ? "disabled" : ""}>Previous</button>
+            <button class="btn btn--glass btn--sm" data-action="next-episode" ${currentEpisode >= totalEps ? "disabled" : ""}>Next</button>
+          </div>
+          
+          <div style="display:flex;gap:var(--space-sm)">
+            ${canDub ? `<button class="btn btn--glass btn--sm" data-action="toggle-language">${langIcon}</button>` : ""}
+            <button class="btn btn--primary btn--sm" data-action="switch-provider">Provider: ${provider.name}</button>
+          </div>
+
+          <button class="btn btn--glass btn--sm" data-action="mark-watched" data-id="${entry.id}">Mark Watched</button>
+          <button class="btn btn--glass btn--sm" data-action="close-watch" style="margin-left:auto">Close Player</button>
         </div>
       </div>
-      <div class="watch-sidebar" id="episodeSidebar">
-        <div class="watch-sidebar__title">Episodes</div>
+    </div>
+    <div class="watch-sidebar" id="episodeSidebar">
+      <div class="watch-sidebar__title">Episodes</div>
+      <div class="watch-sidebar__list" style="overflow-y:auto;flex:1">
         ${renderEpisodeList(entry, totalEps)}
       </div>
     </div>
@@ -576,14 +685,90 @@ function renderEpisodeList(entry, total) {
   return html;
 }
 
-function buildStreamUrl(entry, ep, lang, idx) {
+// buildStreamUrl — async-aware; callers that need a URL must await this.
+async function buildStreamUrl(entry, ep, lang, idx) {
   if (!entry?.anilistId) return "";
   const p = STREAM_PROVIDERS[idx];
   if (!p || !p.active) return "";
-  return p.buildUrl(entry, ep, lang);
+  const result = await Promise.resolve(p.buildUrl(entry, ep, lang));
+  return result || "";
 }
 
+// Task 4 — setupWatchPlayer with async resolution + is-resolving state + error postMessage
 function setupWatchPlayer() {
+  const entry = getEntry(currentWatchId);
+  if (!entry) return;
+  const iframe = document.querySelector("[data-watch-iframe]");
+  if (!iframe) return;
+
+  const playerWrap = iframe.closest(".watch-player");
+
+  // Mark as resolving while we fetch the URL
+  if (playerWrap) playerWrap.classList.add("is-resolving");
+
+  const providerIndexAtStart = currentProvider;
+  const provider = STREAM_PROVIDERS[providerIndexAtStart];
+  if (!provider) return;
+
+  let streamFallbackTimer = null;
+
+  function cleanup() {
+    clearTimeout(streamFallbackTimer);
+    window.removeEventListener("message", onMessage);
+  }
+
+  function advanceProvider(reason) {
+    cleanup();
+    if (currentProvider !== providerIndexAtStart) return; // user already switched
+    const next = providerIndexAtStart + 1;
+    if (next < STREAM_PROVIDERS.length) {
+      currentProvider = next;
+      showToast(`${provider.name} ${reason} — trying ${STREAM_PROVIDERS[next].name}`, "error");
+      renderContent();
+    } else {
+      currentProvider = 0;
+      showToast("All providers tried. Switch manually.", "error");
+    }
+  }
+
+  function onMessage(evt) {
+    const payload = evt.data;
+    if (!payload || typeof payload !== "object") return;
+    // Task 5 — error event: skip immediately
+    if (payload.event === "error" || payload.type === "error") {
+      advanceProvider("reported an error");
+      return;
+    }
+    // Success signals — cancel the fallback timer
+    if (payload.event === "time" || payload.type === "watching-log" || payload.channel === "megacloud") {
+      cleanup();
+    }
+  }
+
+  window.addEventListener("message", onMessage);
+
+  // Resolve URL (async for MegaPlay, instant for others)
+  buildStreamUrl(entry, currentEpisode, currentLanguage, providerIndexAtStart).then(url => {
+    if (playerWrap) playerWrap.classList.remove("is-resolving");
+    if (currentProvider !== providerIndexAtStart) return; // user switched while resolving
+
+    if (!url) {
+      // Provider can't serve this episode — skip immediately
+      cleanup();
+      advanceProvider("has no stream for this episode");
+      return;
+    }
+
+    iframe.src = url;
+
+    // 30-second fallback timeout for slow/hung players
+    streamFallbackTimer = setTimeout(() => {
+      advanceProvider("timed out");
+    }, 30000);
+  }).catch(() => {
+    if (playerWrap) playerWrap.classList.remove("is-resolving");
+    advanceProvider("failed to resolve");
+  });
 }
 
 /* ══ TOAST ════════════════════════════════════════════════════ */
@@ -650,24 +835,34 @@ function renderDetailOverlay(anime) {
   const existing = getEntry(anime.id);
   const entryRating = existing?.rating || 0;
   return `<div class="overlay-card" data-overlay-card>
-    <div style="display:flex;gap:var(--space-3);margin-bottom:var(--space-4)">
-      ${img ? `<img src="${escapeHtml(img)}" style="width:100px;border-radius:var(--radius-sm);aspect-ratio:2/3;object-fit:cover" alt="">` : ""}
-      <div style="flex:1">
-        <div class="overlay-card__title">${escapeHtml(title)}</div>
-        <div style="font-size:var(--text-sm);color:rgba(255,255,255,0.5);margin-bottom:var(--space-2)">
-          ${anime.episodes ? `${anime.episodes} eps` : ""}${anime.averageScore ? ` • ${anime.averageScore}%` : ""}${(anime.seasonYear || anime.year) ? ` • ${anime.seasonYear || anime.year}` : ""}
-        </div>
-        <div style="display:flex;gap:var(--space-2);flex-wrap:wrap">
-          ${(anime.genres || []).slice(0, 3).map(g => `<span style="padding:2px 10px;border-radius:12px;background:var(--glass-bg);border:1px solid var(--glass-border);font-size:var(--text-xs)">${escapeHtml(g)}</span>`).join("")}
+    <div class="overlay-card__media">
+      ${img ? `<img src="${escapeHtml(img)}" alt="" style="width:100%;height:100%;object-fit:cover">` : ""}
+    </div>
+    <div class="overlay-card__content" style="padding:var(--space-lg);display:flex;flex-direction:column;gap:var(--space-md)">
+      <div>
+        <div class="overlay-card__title" style="font-family:var(--font-display);font-size:32px;font-weight:800;margin-bottom:var(--space-xs)">${escapeHtml(title)}</div>
+        <div style="font-size:14px;color:var(--text-muted);display:flex;gap:12px">
+          <span>${anime.format}</span>
+          <span>${anime.episodes ? `${anime.episodes} Episodes` : "?? Eps"}</span>
+          <span>${anime.averageScore ? `${anime.averageScore}% Score` : ""}</span>
+          <span>${anime.seasonYear || anime.year || ""}</span>
         </div>
       </div>
-    </div>
-    ${anime.description ? `<div class="overlay-card__text">${truncate(escapeHtml(anime.description.replace(/<[^>]*>/g, "")), 300)}</div>` : ""}
-    ${existing ? renderRatingSection(anime.id, entryRating) : ""}
-    ${existing ? renderNotesSection(anime.id, existing.notes || "") : ""}
-    <div class="overlay-card__actions" style="margin-top:var(--space-3)">
-      ${existing ? `<button class="btn btn--primary" data-action="open-watch" data-id="${existing.id}">&#9654; Watch</button>` : `<button class="btn btn--primary" data-action="add-to-library" data-id="${anime.id}">+ Add to Library</button>`}
-      <button class="btn btn--glass" data-action="close-overlay">Close</button>
+      
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${(anime.genres || []).slice(0, 4).map(g => `<span style="padding:4px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--glass-border);border-radius:100px;font-size:12px;font-weight:600">${escapeHtml(g)}</span>`).join("")}
+      </div>
+
+      <div class="overlay-card__text" style="color:var(--text-muted);font-size:15px;line-height:1.6;flex:1">
+        ${truncate(escapeHtml(anime.description?.replace(/<[^>]*>/g, "") || "No description available."), 400)}
+      </div>
+
+      ${existing ? renderRatingSection(anime.id, entryRating) : ""}
+      
+      <div class="overlay-card__actions" style="margin-top:auto;display:flex;gap:var(--space-md)">
+        ${existing ? `<button class="btn btn--primary" data-action="open-watch" data-id="${existing.id}">Watch Now</button>` : `<button class="btn btn--primary" data-action="add-to-library" data-id="${anime.id}">Add to Library</button>`}
+        <button class="btn btn--glass" data-action="close-overlay">Close</button>
+      </div>
     </div>
   </div>`;
 }
@@ -902,16 +1097,16 @@ document.addEventListener("click", e => {
     const entry = getEntry(currentWatchId);
     if (!entry) return;
     const total = entry.episodes || 1;
-    if (currentEpisode < total) { currentEpisode++; renderContent(); }
+    if (currentEpisode < total) { currentEpisode++; currentProvider = 0; renderContent(); }
   }
 
   if (action === "prev-episode") {
-    if (currentEpisode > 1) { currentEpisode--; renderContent(); }
+    if (currentEpisode > 1) { currentEpisode--; currentProvider = 0; renderContent(); }
   }
 
   if (action === "set-episode") {
     const ep = Number(target.dataset.ep);
-    if (ep > 0) { currentEpisode = ep; renderContent(); }
+    if (ep > 0) { currentEpisode = ep; currentProvider = 0; renderContent(); }
   }
 
   if (action === "switch-provider") {

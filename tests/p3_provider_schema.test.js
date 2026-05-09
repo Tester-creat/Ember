@@ -12,7 +12,7 @@ const STREAM_PROVIDERS = [
     buildUrl: (entry, ep, lang) => {
       return episodeEmbedCache[`${entry.anilistId}-${ep}-${lang}`] || "";
     },
-    notes: "Primary — resolved via Anikoto API (episode embed IDs)",
+    notes: "Primary — Anikoto /series/{id} native embed (s-2 path). Highest reliability.",
   },
   {
     name: "VidNest",
@@ -21,6 +21,14 @@ const STREAM_PROVIDERS = [
     buildUrl: (entry, ep, lang) =>
       `https://vidnest.fun/anime/${entry.anilistId}/${ep}/${lang}`,
     notes: "Direct AniList ID embed. Reliable synchronous fallback.",
+  },
+  {
+    name: "VidSrc",
+    active: true,
+    idType: "anilist",
+    buildUrl: (entry, ep, lang) =>
+      `https://vidsrc.cc/v2/embed/anime/${entry.anilistId}/${ep}`,
+    notes: "VidSrc anime embed. Direct AniList ID embed.",
   },
 ];
 
@@ -110,6 +118,7 @@ describe('Property P3: Provider schema invariant', () => {
     it('should all have valid idType values', () => {
       expect(STREAM_PROVIDERS[0].idType).toBe('anikoto');
       expect(STREAM_PROVIDERS[1].idType).toBe('anilist');
+      expect(STREAM_PROVIDERS[2].idType).toBe('anilist');
     });
 
     it('should all have active set to true', () => {
@@ -118,8 +127,8 @@ describe('Property P3: Provider schema invariant', () => {
       });
     });
 
-    it('should have exactly 2 providers in STREAM_PROVIDERS', () => {
-      expect(STREAM_PROVIDERS).toHaveLength(2);
+    it('should have exactly 3 providers in STREAM_PROVIDERS', () => {
+      expect(STREAM_PROVIDERS).toHaveLength(3);
     });
   });
 

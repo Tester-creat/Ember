@@ -10,7 +10,7 @@ const STREAM_PROVIDERS = [
     buildUrl: (entry, ep, lang) => {
       return episodeEmbedCache[`${entry.anilistId}-${ep}-${lang}`] || "";
     },
-    notes: "Primary — resolved via Anikoto API (episode embed IDs)",
+    notes: "Primary — Anikoto /series/{id} native embed (s-2 path). Highest reliability.",
   },
   {
     name: "VidNest",
@@ -19,6 +19,14 @@ const STREAM_PROVIDERS = [
     buildUrl: (entry, ep, lang) =>
       `https://vidnest.fun/anime/${entry.anilistId}/${ep}/${lang}`,
     notes: "Direct AniList ID embed. Reliable synchronous fallback.",
+  },
+  {
+    name: "VidSrc",
+    active: true,
+    idType: "anilist",
+    buildUrl: (entry, ep, lang) =>
+      `https://vidsrc.cc/v2/embed/anime/${entry.anilistId}/${ep}`,
+    notes: "VidSrc anime embed. Direct AniList ID embed.",
   },
 ];
 
@@ -33,7 +41,6 @@ function buildStreamUrl(entry, episode, language, providerIndex = 0) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  // Clear cache and reset provider index between tests
   Object.keys(episodeEmbedCache).forEach(k => delete episodeEmbedCache[k]);
   currentProvider = 0;
 });
@@ -94,12 +101,25 @@ describe('Provider URL Generation', () => {
     });
   });
 
+  describe('VidSrc provider', () => {
+    it('should generate correct URL for episode 1', () => {
+      const url = STREAM_PROVIDERS[2].buildUrl(sampleEntry, 1, 'sub');
+      expect(url).toBe('https://vidsrc.cc/v2/embed/anime/21/1');
+    });
+
+    it('URL starts with "https://"', () => {
+      const url = STREAM_PROVIDERS[2].buildUrl(sampleEntry, 1, 'sub');
+      expect(url.startsWith('https://')).toBe(true);
+    });
+  });
+
   describe('All providers HTTPS verification', () => {
     it('should return HTTPS URLs for all active providers that produce URLs', () => {
+      // Seed MegaPlay cache so it returns a URL
+      episodeEmbedCache['21-1-sub'] = 'https://megaplay.buzz/stream/s-2/170320/sub';
       STREAM_PROVIDERS.forEach((provider) => {
         if (provider.active) {
           const url = provider.buildUrl(sampleEntry, 1, 'sub');
-          // VidNest always returns HTTPS; MegaPlay only when cached
           if (url) expect(url).toMatch(/^https:\/\//);
         }
       });
@@ -132,6 +152,15 @@ describe('Provider URL Generation', () => {
       expect(url1).toBe('https://vidnest.fun/anime/1/1/sub');
       expect(url2).toBe('https://vidnest.fun/anime/12345/1/sub');
     });
+
+    it('should handle different anime IDs with VidSrc', () => {
+      const entry1 = { anilistId: 1, title: "Cowboy Bebop" };
+      const entry2 = { anilistId: 12345, title: "Test Anime" };
+      const url1 = STREAM_PROVIDERS[2].buildUrl(entry1, 1, 'sub');
+      const url2 = STREAM_PROVIDERS[2].buildUrl(entry2, 1, 'sub');
+      expect(url1).toBe('https://vidsrc.cc/v2/embed/anime/1/1');
+      expect(url2).toBe('https://vidsrc.cc/v2/embed/anime/12345/1');
+    });
   });
 
   describe('buildStreamUrl function', () => {
@@ -149,6 +178,11 @@ describe('Provider URL Generation', () => {
     it('should return VidNest URL when specifying provider index 1', () => {
       const url = buildStreamUrl(sampleEntry, 1, 'sub', 1);
       expect(url).toBe('https://vidnest.fun/anime/21/1/sub');
+    });
+
+    it('should return VidSrc URL when specifying provider index 2', () => {
+      const url = buildStreamUrl(sampleEntry, 1, 'sub', 2);
+      expect(url).toBe('https://vidsrc.cc/v2/embed/anime/21/1');
     });
 
     it('should return empty string for out-of-bounds provider index', () => {
@@ -178,8 +212,8 @@ describe('Provider URL Generation', () => {
 
     it('should return only the requested provider URL with no fallthrough', () => {
       episodeEmbedCache['21-1-sub'] = 'https://megaplay.buzz/stream/s-2/170320/sub';
-      const url = buildStreamUrl(sampleEntry, 1, 'sub', 0);
-      expect(url).toBe('https://megaplay.buzz/stream/s-2/170320/sub');
+      const url0 = buildStreamUrl(sampleEntry, 1, 'sub', 0);
+      expect(url0).toBe('https://megaplay.buzz/stream/s-2/170320/sub');
       const url1 = buildStreamUrl(sampleEntry, 1, 'sub', 1);
       expect(url1).toBe('https://vidnest.fun/anime/21/1/sub');
     });
@@ -225,14 +259,15 @@ describe('Provider URL Generation', () => {
       });
     });
 
-    it('should have exactly 2 active providers', () => {
+    it('should have exactly 3 active providers', () => {
       const activeProviders = STREAM_PROVIDERS.filter(p => p.active);
-      expect(activeProviders).toHaveLength(2);
+      expect(activeProviders).toHaveLength(3);
     });
 
     it('should have correct idType for each provider', () => {
       expect(STREAM_PROVIDERS[0].idType).toBe('anikoto');
       expect(STREAM_PROVIDERS[1].idType).toBe('anilist');
+      expect(STREAM_PROVIDERS[2].idType).toBe('anilist');
     });
   });
 });

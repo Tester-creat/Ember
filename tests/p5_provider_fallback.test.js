@@ -7,7 +7,7 @@ const STREAM_PROVIDERS = [
     active: true,
     idType: "anikoto",
     buildUrl: () => "",
-    notes: "Primary — resolved via Anikoto API (episode embed IDs)",
+    notes: "Primary — Anikoto /series/{id} native embed (s-2 path). Highest reliability.",
   },
   {
     name: "VidNest",
@@ -16,6 +16,14 @@ const STREAM_PROVIDERS = [
     buildUrl: (entry, ep, lang) =>
       `https://vidnest.fun/anime/${entry.anilistId}/${ep}/${lang}`,
     notes: "Direct AniList ID embed. Reliable synchronous fallback.",
+  },
+  {
+    name: "VidSrc",
+    active: true,
+    idType: "anilist",
+    buildUrl: (entry, ep, lang) =>
+      `https://vidsrc.cc/v2/embed/anime/${entry.anilistId}/${ep}`,
+    notes: "VidSrc anime embed. Direct AniList ID embed.",
   },
 ];
 
@@ -72,13 +80,13 @@ describe('Property P5: Provider fallback cycling', () => {
   );
 
   describe('Provider fallback scenarios', () => {
-    it('should cycle through all 2 active providers in order', () => {
+    it('should cycle through all 3 active providers in order', () => {
       const activeProviders = getActiveProviders();
-      expect(activeProviders).toHaveLength(2);
+      expect(activeProviders).toHaveLength(3);
 
       let currentIdx = 0;
-      const expectedSequence = [0, 1, 0, 1];
-      for (let i = 0; i < 4; i++) {
+      const expectedSequence = [0, 1, 2, 0, 1, 2];
+      for (let i = 0; i < 6; i++) {
         expect(currentIdx).toBe(expectedSequence[i]);
         currentIdx = getNextProviderIndex(currentIdx, activeProviders.length);
       }
