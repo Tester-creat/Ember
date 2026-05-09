@@ -12,6 +12,15 @@ let searchResults = [];
 let pendingSearchQuery = "";
 const ANILIST_API = "https://graphql.anilist.co";
 
+/* ══ HERO STATE ════════════════════════════════════════════════ */
+let heroItems = [];
+let heroIndex = 0;
+let heroTimer = null;
+let heroObserver = null;
+let heroSwipeStartX = 0;
+let heroSwipeStartY = 0;
+const HERO_INTERVAL = 8000; // 8 seconds per slide
+
 // Feature 1: group size constant — 40 episodes per group
 const EP_GROUP_SIZE = 40;
 
@@ -116,22 +125,45 @@ function anikotoFetch(endpoint) {
 function normalizeAnime(m) {
   if (!m) return null;
   // Handle both AniList GraphQL shape and Anikoto proxy shape
-  const titleObj = m.title || {};
+  const titleIsObj = typeof m.title === "object" && m.title !== null;
+  const titleObj = titleIsObj ? m.title : {};
   const coverObj = m.coverImage || m.cover || {};
   const episodes = m.episodes || (m.nextAiringEpisode ? m.nextAiringEpisode.episode - 1 : 0) || 0;
+
+  // Anikoto format: score is a string like "8.59", convert to 0-100 integer
+  let avgScore = m.averageScore || 0;
+  if (!avgScore && m.score && m.score !== "?") {
+    avgScore = Math.round(parseFloat(m.score) * 10);
+  }
+
+  // Anikoto format: genres are in terms_by_type.genre
+  let genres = m.genres || [];
+  if (!genres.length && m.terms_by_type?.genre) {
+    genres = m.terms_by_type.genre;
+  }
+
+  // Anikoto format: format is in terms_by_type.type[0]
+  let format = m.format || "";
+  if (!format && m.terms_by_type?.type?.length) {
+    format = m.terms_by_type.type[0];
+  }
+
+  // Anikoto format: title=English, alternative=Romaji
+  const anikotoTitle = !titleIsObj ? (m.alternative || m.title) : "";
+  const anikotoEnglish = !titleIsObj ? (m.title || "") : "";
 
   return {
     id:              m.id || m.anilistId,
     anilistId:       m.id || m.anilistId,
-    title:           titleObj.romaji || titleObj.english || m.title || "",
-    titleEnglish:    titleObj.english || m.titleEnglish || "",
-    cover:           coverObj.large || coverObj.medium || m.cover || "",
-    banner:          m.bannerImage || m.banner || "",
+    title:           titleObj.romaji || titleObj.english || anikotoTitle || m.title || "",
+    titleEnglish:    titleObj.english || m.titleEnglish || anikotoEnglish || "",
+    cover:           coverObj.large || coverObj.medium || m.cover || m.poster || "",
+    banner:          m.bannerImage || m.banner || coverObj.large || coverObj.medium || m.cover || m.poster || "",
     episodes:        Number(episodes) || 0,
-    format:          m.format || "",
-    averageScore:    m.averageScore || 0,
+    format:          format,
+    averageScore:    avgScore,
     description:     m.description || "",
-    genres:          m.genres || [],
+    genres:          genres,
     year:            m.seasonYear || m.year || (m.startDate ? m.startDate.year : 0) || 0,
     season:          m.season || "",
     status:          m.status || ""
@@ -551,16 +583,211 @@ async function loadBrowse(mode, page = 1) {
 }
 
 function updateHeroBackground(anime) {
+  // Legacy function - kept for compatibility but logic moved to hero controller
+}
+
+/* ══ HERO SYSTEM ═══════════════════════════════════════════════ */
+function initHeroSystem() {
+  const entries = getAnimeEntries();
+  // Priority: 1. Watching (most recently watched first), 2. Trending Fallback
+  let items = entries.filter(e => e.status === "watching").sort((a, b) => (b.lastWatched || 0) - (a.lastWatched || 0));
+
+  if (items.length < 5) {
+    const trending = browseData.results.filter(a => !items.some(i => String(i.id) === String(a.id)));
+    items = [...items, ...trending.slice(0, 8 - items.length)];
+  }
+
+  heroItems = items.map(normalizeAnime).filter(Boolean);
+  if (heroItems.length === 0) return;
+
+  // Build indicator dots
+  const indicatorsEl = document.getElementById("heroIndicators");
+  if (indicatorsEl) {
+    indicatorsEl.innerHTML = heroItems.map((_, i) =>
+      `<button class="hero__dot${i === 0 ? " is-active" : ""}" data-action="hero-dot" data-index="${i}" aria-label="Slide ${i + 1}"></button>`
+    ).join("");
+  }
+
+  heroIndex = 0;
+  renderHeroSlide();
+  startHeroRotation();
+  setupHeroObserver();
+  setupHeroTouch();
+}
+
+function renderHeroSlide() {
+  const heroEl = document.getElementById("hero");
+  if (!heroEl || heroItems.length === 0) return;
+
+  const anime = heroItems[heroIndex];
   const heroBg = document.getElementById("heroBg");
-  if (!heroBg || !anime) return;
-  const img = anime.coverImage?.large;
-  if (img) heroBg.style.backgroundImage = `url(${img})`;
+  const heroBody = heroEl.querySelector(".hero__body");
+  const entry = getEntry(anime.id);
+  const isWatching = entry?.status === "watching";
+  const title = getTitle(anime);
+  const banner = anime.banner || getCoverSrc(anime);
+  const description = truncate(anime.description?.replace(/<[^>]*>/g, ""), 200);
+
+  // Rich metadata
+  const score    = anime.averageScore ? `${anime.averageScore}%` : "";
+  const year     = anime.year ? String(anime.year) : "";
+  const episodes = anime.episodes ? `${anime.episodes} eps` : "";
+  const format   = anime.format ? anime.format.replace(/_/g, " ") : "";
+  const nextEp   = isWatching && entry ? `Ep ${(entry.episodesWatched || 0) + 1}` : "";
+  const metaParts = [score, year, episodes].filter(Boolean);
+  const metaHtml  = metaParts.map(p => `<span>${escapeHtml(p)}</span>`).join("");
+  const genreChips = (anime.genres || []).slice(0, 3)
+    .map(g => `<span class="hero__genre-chip">${escapeHtml(g)}</span>`).join("");
+
+  // Crossfade background with CSS animations
+  if (heroBg && banner) {
+    const prevBg = heroEl.querySelector(".hero__bg--prev");
+    if (prevBg) prevBg.remove();
+
+    heroBg.style.backgroundImage = `url(${banner})`;
+    heroBg.classList.remove("hero__bg--ken-burns", "hero__bg--crossfade-in");
+    void heroBg.offsetWidth;
+    heroBg.classList.add("hero__bg--crossfade-in", "hero__bg--ken-burns");
+  }
+
+  // Slide content transition: fade-out old, then fade-in new
+  heroBody.style.opacity = "0";
+  heroBody.style.transform = "translateY(8px)";
+  heroBody.style.transition = "opacity 0.3s ease, transform 0.3s ease";
+
+  setTimeout(() => {
+    heroBody.innerHTML = `
+      <div class="hero__accent fade-in-left">${isWatching ? "&#9654; Continue Watching" : "Trending Now"}</div>
+      ${format ? `<div class="hero__meta-format fade-in-left">${escapeHtml(format)}</div>` : ""}
+      <h1 class="hero__title fade-in-left">${escapeHtml(title)}</h1>
+      <div class="hero__meta fade-in-left">${metaHtml}</div>
+      ${genreChips ? `<div class="hero__genres fade-in-left">${genreChips}</div>` : ""}
+      ${description ? `<p class="hero__subtitle fade-in-left">${escapeHtml(description)}</p>` : ""}
+      <div class="hero__actions fade-in-left">
+        <button class="btn btn--primary" data-action="${isWatching ? "open-watch" : "open-detail"}" data-id="${anime.id}">
+          ${isWatching ? (nextEp ? `&#9654; Resume ${nextEp}` : "&#9654; Resume") : "View Details"}
+        </button>
+        <button class="btn btn--glass" data-action="open-status-picker" data-id="${anime.id}">+ My List</button>
+      </div>
+    `;
+
+    heroBody.style.opacity = "1";
+    heroBody.style.transform = "translateY(0)";
+
+    // Stagger fade-in animations
+    heroBody.querySelectorAll(".fade-in-left").forEach((el, i) => {
+      el.style.animationDelay = `${i * 0.07}s`;
+    });
+  }, 300);
+
+  // Update indicator dots
+  const indicatorsEl = document.getElementById("heroIndicators");
+  if (indicatorsEl) {
+    indicatorsEl.querySelectorAll(".hero__dot").forEach((dot, i) => {
+      dot.classList.toggle("is-active", i === heroIndex);
+    });
+  }
+
+  // Restart progress bar
+  const progressBar = document.getElementById("heroProgress");
+  if (progressBar) {
+    progressBar.style.transition = "none";
+    progressBar.style.width = "0%";
+    void progressBar.offsetWidth;
+    progressBar.style.transition = `width ${HERO_INTERVAL}ms linear`;
+    progressBar.style.width = "100%";
+  }
+}
+
+function startHeroRotation() {
+  stopHeroRotation();
+  if (heroItems.length <= 1) return;
+  heroTimer = setInterval(() => {
+    heroIndex = (heroIndex + 1) % heroItems.length;
+    renderHeroSlide();
+  }, HERO_INTERVAL);
+}
+
+function stopHeroRotation() {
+  if (heroTimer) {
+    clearInterval(heroTimer);
+    heroTimer = null;
+  }
+  if (heroObserver) {
+    heroObserver.disconnect();
+    heroObserver = null;
+  }
+}
+
+function setupHeroObserver() {
+  const heroEl = document.getElementById("hero");
+  if (!heroEl) return;
+  if (heroObserver) heroObserver.disconnect();
+  heroObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) {
+        stopHeroRotation();
+      } else if (heroItems.length > 1 && heroTimer === null) {
+        startHeroRotation();
+      }
+    }
+  }, { threshold: 0 });
+  heroObserver.observe(heroEl);
+}
+
+function setupHeroTouch() {
+  const heroEl = document.getElementById("hero");
+  if (!heroEl) return;
+  heroEl.addEventListener("touchstart", (e) => {
+    const t = e.touches[0];
+    if (t) handleHeroSwipeStart(t.clientX, t.clientY);
+  }, { passive: true });
+  heroEl.addEventListener("touchend", (e) => {
+    const t = e.changedTouches[0];
+    if (t) handleHeroSwipeEnd(t.clientX, t.clientY);
+  }, { passive: true });
+}
+
+function goToHeroSlide(index) {
+  if (index < 0 || index >= heroItems.length || index === heroIndex) return;
+  stopHeroRotation();
+  heroIndex = index;
+  renderHeroSlide();
+  startHeroRotation();
+}
+
+function handleHeroSwipeStart(x, y) {
+  heroSwipeStartX = x;
+  heroSwipeStartY = y;
+}
+
+function handleHeroSwipeEnd(x, y) {
+  const dx = x - heroSwipeStartX;
+  const dy = y - heroSwipeStartY;
+  if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy)) return;
+  if (dx > 0) {
+    heroIndex = (heroIndex - 1 + heroItems.length) % heroItems.length;
+  } else {
+    heroIndex = (heroIndex + 1) % heroItems.length;
+  }
+  renderHeroSlide();
+  startHeroRotation();
 }
 
 /* ══ UTILITY ═══════════════════════════════════════════════════ */
 function escapeHtml(s) {
   if (typeof s !== "string") return "";
   const d = document.createElement("div"); d.textContent = s; return d.innerHTML;
+}
+
+function getCoverSrc(anime) {
+  return anime.cover || anime.coverImage?.large || anime.coverImage?.medium || anime.poster || "";
+}
+
+function renderImgSafe(src, alt, className) {
+  if (!src) return "";
+  const cls = className ? ` class="${escapeHtml(className)}"` : "";
+  return `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt || "")}" loading="lazy"${cls} onerror="this.style.display='none'">`;
 }
 function getTitle(media) {
   return media.titleEnglish || media.title?.english || media.title?.romaji || media.title || media.title?.native || "Unknown Title";
@@ -768,7 +995,16 @@ function renderContent() {
   afterRender();
 }
 
+function setupMarquees() {
+  document.querySelectorAll(".marquee-track").forEach(track => {
+    const totalWidth = track.scrollWidth / 2;
+    const speed = 60;
+    track.style.setProperty("--marquee-dur", `${Math.max(totalWidth / speed, 15)}s`);
+  });
+}
+
 function afterRender() {
+  setupMarquees();
   document.querySelectorAll("[data-row-track]").forEach(t => {
     t.setAttribute("tabindex", "0");
     t.setAttribute("role", "region");
@@ -799,6 +1035,17 @@ function afterRender() {
     if (entry && entry.anilistId) renderWatchOrder(entry.anilistId);
   }
   updateNavActive();
+  
+  // Hero section management
+  const heroEl = document.getElementById("hero");
+  if (currentTab === "home" && currentWatchId === null) {
+    if (heroEl) heroEl.style.display = "flex";
+    if (heroItems.length === 0 || currentTab === "home") initHeroSystem();
+  } else {
+    if (heroEl) heroEl.style.display = "none";
+    stopHeroRotation();
+  }
+
 }
 
 function updateNavActive() {
@@ -807,22 +1054,93 @@ function updateNavActive() {
   });
 }
 
+/* ══ FRANCHISE HELPERS ═════════════════════════════════════════ */
+const SEASON_PATTERNS = [
+  /^(.+?)\s+season\s+(\d+)$/i,
+  /^(.+?)\s+(\d+)(?:st|nd|rd|th)?\s*season$/i,
+  /^(.+?)\s+(\d+)$/i,
+  /^(.+?)\s+(?:part|vol)\.?\s*(\d+)$/i,
+  /^(.+?)\s+(?:series|season)\s+(one|two|three|four|five|six|seven|eight|nine|ten)$/i,
+];
+
+const SEASON_WORD_MAP = {
+  one: 1, two: 2, three: 3, four: 4, five: 5,
+  six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+};
+
+function parseFranchise(title) {
+  if (!title) return null;
+  const lower = title.trim();
+  for (const pattern of SEASON_PATTERNS) {
+    const m = lower.match(pattern);
+    if (m) {
+      const base = m[1].trim();
+      let season = parseInt(m[2], 10);
+      if (isNaN(season)) season = SEASON_WORD_MAP[m[2].toLowerCase()] || 1;
+      return { franchise: base, season };
+    }
+  }
+  return { franchise: lower, season: 0 };
+}
+
+function sortCompletedEntries(entries) {
+  const parsed = entries.map(e => {
+    const info = parseFranchise(e.titleEnglish || e.title || "");
+    return { entry: e, ...info };
+  });
+
+  parsed.sort((a, b) => {
+    const fa = a.franchise || "";
+    const fb = b.franchise || "";
+    const cmp = fa.localeCompare(fb);
+    if (cmp !== 0) return cmp;
+    if (a.season !== b.season) return (a.season || 0) - (b.season || 0);
+    return (a.entry.year || 0) - (b.entry.year || 0);
+  });
+
+  return parsed.map(p => p.entry);
+}
+
 /* ══ HOME ══════════════════════════════════════════════════════ */
 function renderHome() {
   const entries = getAnimeEntries();
-  // Only "watching" entries appear here — see STATUS_ORDER for all valid statuses
   const watching = entries.filter(e => e.status === "watching").sort((a, b) => (b.lastWatched || 0) - (a.lastWatched || 0));
-  const completed = entries.filter(e => e.status === "completed").sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0)).slice(0, 20);
+  
+  // Sort completed by franchise and chronology
+  const completed = sortCompletedEntries(entries.filter(e => e.status === "completed"));
+
   return `
-    ${watching.length ? renderContinueWatching(watching) : ""}
     <section class="section">
       <div class="section__head">
         <div class="section__title">Trending Now</div>
         <button class="btn btn--sm btn--glass" data-action="tab" data-tab="browse">View All</button>
       </div>
-      <div class="media-row"><div class="media-row__viewport" data-row-track="trendingRow"><div class="media-row__track" id="browseCards">${browseData.results.slice(0, 10).map(renderCard).join("")}</div></div></div>
+      <div class="media-row">
+        <div class="media-row__viewport marquee-container">
+          <div class="media-row__track marquee-track" id="trendingTrack">
+            ${browseData.results.map(renderCard).join("")}
+            ${browseData.results.map(renderCard).join("")} 
+          </div>
+        </div>
+      </div>
     </section>
-    ${completed.length ? `<section class="section"><div class="section__head"><div class="section__title">Completed</div></div><div class="media-row"><div class="media-row__viewport" data-row-track="completedRow"><div class="media-row__track">${completed.slice(0, 10).map(e => renderEntryCard(e)).join("")}</div></div></div></section>` : ""}
+
+    ${watching.length ? renderContinueWatching(watching) : ""}
+
+    ${completed.length ? `
+    <section class="section">
+      <div class="section__head">
+        <div class="section__title">Completed Masterpieces</div>
+      </div>
+      <div class="media-row">
+        <div class="media-row__viewport marquee-container">
+          <div class="media-row__track marquee-track marquee-track--reverse" id="completedTrack">
+            ${completed.map(renderEntryCard).join("")}
+            ${completed.map(renderEntryCard).join("")}
+          </div>
+        </div>
+      </div>
+    </section>` : ""}
   `;
 }
 
@@ -834,13 +1152,13 @@ function renderContinueWatching(entries) {
 }
 
 function renderContinueCard(entry) {
-  const poster = entry.cover || "";
+  const poster = getCoverSrc(entry);
   const nextEp = (entry.episodesWatched || 0) + 1;
   const totalEp = entry.episodes || "?";
   return `<div class="continue-card" data-action="open-watch" data-id="${entry.id}" role="button" tabindex="0">
-    <div class="continue-card__bg">${poster ? `<img src="${escapeHtml(poster)}" alt="" loading="lazy">` : ""}</div>
+    <div class="continue-card__bg">${renderImgSafe(poster, "")}</div>
     <div class="continue-card__content">
-      <div class="continue-card__poster">${poster ? `<img src="${escapeHtml(poster)}" alt="" loading="lazy">` : ""}</div>
+      <div class="continue-card__poster">${renderImgSafe(poster, "")}</div>
       <div class="continue-card__info">
         <div class="continue-card__title">${escapeHtml(getDisplayTitle(entry))}</div>
         <div class="continue-card__ep">Ep ${nextEp} / ${totalEp}</div>
@@ -1172,7 +1490,7 @@ function renderStats() {
   const topEpCards = s.topByEpisodes.map(e => {
     const pct = e.episodes > 0 ? Math.round((e.episodesWatched / e.episodes) * 100) : 100;
     return `<div class="stop-ep-card" data-action="open-watch" data-id="${e.id}" role="button" tabindex="0">
-      <div class="stop-ep-card__cover">${e.cover ? `<img src="${escapeHtml(e.cover)}" alt="">` : ''}</div>
+      <div class="stop-ep-card__cover">${renderImgSafe(getCoverSrc(e), "")}</div>
       <div class="stop-ep-card__info">
         <div class="stop-ep-card__title">${escapeHtml(getDisplayTitle(e))}</div>
         <div class="stop-ep-card__eps">${e.episodesWatched} / ${e.episodes || '?'} eps</div>
@@ -1322,10 +1640,10 @@ function renderSeasonal() {
 /* ══ CARDS ════════════════════════════════════════════════════ */
 function renderCard(anime) {
   const title = getTitle(anime);
-  const img = anime.cover || "";
+  const img = getCoverSrc(anime);
   const meta = [anime.episodes ? `${anime.episodes} eps` : "", anime.averageScore ? `${anime.averageScore}%` : ""].filter(Boolean).join(" • ");
   return `<div class="anime-card" data-action="open-detail" data-id="${anime.id}" role="button" tabindex="0">
-    <div class="anime-card__media">${img ? `<img src="${escapeHtml(img)}" alt="${escapeHtml(title)}" loading="lazy">` : ""}</div>
+    <div class="anime-card__media">${renderImgSafe(img, title)}</div>
     <div class="anime-card__body">
       <div class="anime-card__title">${escapeHtml(title)}</div>
       ${meta ? `<div class="anime-card__meta">${escapeHtml(meta)}</div>` : ""}
@@ -1335,12 +1653,12 @@ function renderCard(anime) {
 
 function renderEntryCard(entry) {
   const title = getDisplayTitle(entry);
-  const img = entry.cover || "";
+  const img = getCoverSrc(entry);
   const meta = entry.episodes ? `${entry.episodesWatched || 0}/${entry.episodes}` : "";
   const stars = entry.rating > 0 ? renderStarsInline(entry.rating) : "";
   return `<div class="anime-card" data-action="open-watch" data-id="${entry.id}" role="button" tabindex="0">
     <div class="anime-card__media">
-      ${img ? `<img src="${escapeHtml(img)}" alt="${escapeHtml(title)}" loading="lazy">` : ""}
+      ${renderImgSafe(img, title)}
       <div class="status-badge" data-status="${entry.status}">${getStatusLabel(entry.status)}</div>
     </div>
     <div class="anime-card__body">
@@ -1808,12 +2126,12 @@ function hideOverlay() {
 
 function renderDetailOverlay(anime) {
   const title = getTitle(anime);
-  const img = anime.coverImage?.large || "";
+  const img = getCoverSrc(anime);
   const existing = getEntry(anime.id);
   const entryRating = existing?.rating || 0;
   return `<div class="overlay-card" data-overlay-card>
     <div class="overlay-card__media">
-      ${img ? `<img src="${escapeHtml(img)}" alt="" style="width:100%;height:100%;object-fit:cover">` : ""}
+      ${renderImgSafe(img, title)}
     </div>
     <div class="overlay-card__content" style="padding:var(--space-lg);display:flex;flex-direction:column;gap:var(--space-md)">
       <div>
@@ -2296,6 +2614,11 @@ document.addEventListener("click", e => {
   if (action === "close-shortcuts") {
     toggleShortcuts(false);
   }
+
+  if (action === "hero-dot") {
+    const index = Number(target.dataset.index);
+    if (!isNaN(index)) goToHeroSlide(index);
+  }
 });
 
 /* ══ RATING CLICKS (delegated) ════════════════════════════════ */
@@ -2351,6 +2674,12 @@ document.addEventListener("keydown", e => {
         confirmBtn.click();
       }
     }
+  }
+
+  // Hero keyboard navigation
+  if (currentTab === "home" && heroItems.length > 1 && !e.target.closest("input,textarea,button")) {
+    if (e.key === "ArrowLeft") { e.preventDefault(); goToHeroSlide((heroIndex - 1 + heroItems.length) % heroItems.length); return; }
+    if (e.key === "ArrowRight") { e.preventDefault(); goToHeroSlide((heroIndex + 1) % heroItems.length); return; }
   }
 
   if (e.key === "?" && !e.target.closest("input,textarea")) {
@@ -2426,6 +2755,18 @@ window.addEventListener("scroll", () => {
     navHidden = false;
   }
   lastScrollY = window.scrollY;
+
+  // Hero parallax effect
+  const heroEl = document.getElementById("hero");
+  if (heroEl && heroEl.style.display !== "none") {
+    const scrollY = window.scrollY;
+    const heroTop = heroEl.getBoundingClientRect().top;
+    if (heroTop < 0) {
+      heroEl.style.transform = `translateY(${scrollY * 0.15}px)`;
+    } else {
+      heroEl.style.transform = "";
+    }
+  }
 }, { passive: true });
 
 
@@ -2437,3 +2778,4 @@ if (location.protocol === "file:") {
 }
 if (!browseData.results.length) loadBrowse("trending");
 initAnikotoCache();
+

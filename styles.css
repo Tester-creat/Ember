@@ -150,6 +150,7 @@ body {
 }
 :focus:not(:focus-visible) { outline: none; }
 img { max-width: 100%; display: block; object-fit: cover; }
+img[style*="display:none"] { display: none !important; }
 button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
 input, select, textarea { font-family: inherit; }
 a { color: inherit; text-decoration: none; }
@@ -408,12 +409,35 @@ a { color: inherit; text-decoration: none; }
   z-index: -1;
   background-size: cover;
   background-position: center;
-  transform: scale(1.05);
-  transition: transform 10s linear;
+  will-change: transform, opacity;
 }
 
-.hero.active .hero__bg {
-  transform: scale(1.15);
+.hero__bg--ken-burns {
+  transform: scale(1);
+  animation: kenBurns 12s ease-out forwards;
+}
+
+@keyframes kenBurns {
+  from { transform: scale(1); }
+  to   { transform: scale(1.12); }
+}
+
+.hero__bg--crossfade-in {
+  animation: heroCrossfade 1s ease-out forwards;
+}
+
+@keyframes heroCrossfade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.hero__bg--crossfade-out {
+  animation: heroCrossfadeOut 0.8s ease-in forwards;
+}
+
+@keyframes heroCrossfadeOut {
+  from { opacity: 1; }
+  to   { opacity: 0; }
 }
 
 .hero__overlay {
@@ -491,6 +515,143 @@ a { color: inherit; text-decoration: none; }
   .hero__title { font-size: var(--t-2xl); }
   .hero__body { align-items: center; text-align: center; }
   .hero__actions { justify-content: center; }
+}
+
+.hero__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--t-sm);
+  font-weight: 600;
+  color: var(--text2);
+}
+
+.hero__meta span {
+  display: flex;
+  align-items: center;
+}
+
+.hero__meta span:not(:last-child)::after {
+  content: "•";
+  margin-left: var(--sp-2);
+  color: var(--text3);
+}
+
+.hero__meta-format {
+  padding: 2px 8px;
+  border-radius: var(--r-sm);
+  background: var(--surface-md);
+  border: 1px solid var(--border);
+  color: var(--text1);
+  font-size: var(--t-xs);
+  font-weight: 700;
+}
+
+.hero__indicators {
+  position: absolute;
+  right: 5%;
+  bottom: clamp(24px, 5%, 48px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  z-index: 2;
+}
+
+@media (max-width: 767px) {
+  .hero__indicators {
+    right: auto;
+    left: 50%;
+    bottom: var(--sp-4);
+    transform: translateX(-50%);
+    flex-direction: row;
+  }
+}
+
+.hero__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--surface-hi);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+
+.hero__dot:hover {
+  background: var(--text2);
+}
+
+.hero__dot.is-active {
+  background: var(--accent);
+  border-color: var(--accent-hi);
+  transform: scale(1.2);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.hero__progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--surface);
+  z-index: 2;
+}
+
+.hero__progress-bar {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, var(--accent), var(--accent-hi));
+}
+
+.hero__genres {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.hero__genre-chip {
+  padding: 3px 10px;
+  border-radius: var(--r-xl);
+  background: var(--surface-md);
+  border: 1px solid var(--border);
+  color: var(--text2);
+  font-size: var(--t-xs);
+  font-weight: 600;
+  backdrop-filter: var(--blur-sm);
+}
+
+.hero--parallax {
+  transform: translateY(0);
+  will-change: transform;
+}
+
+.fade-in {
+  animation: fadeIn 0.6s var(--ease-out) forwards;
+  opacity: 0;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in-left {
+  animation: fadeInLeft 0.5s var(--ease-out) forwards;
+  opacity: 0;
+}
+
+@keyframes fadeInLeft {
+  from { opacity: 0; transform: translateX(-20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero__bg--ken-burns { animation: none; transform: scale(1); }
+  .hero__bg--crossfade-in { animation: none; opacity: 1; }
+  .hero__bg--crossfade-out { animation: none; opacity: 0; }
+  .hero--parallax { transform: none !important; }
 }
 
 /* ══ TASK 5: BUTTONS ═══════════════════════════════════════════ */
@@ -893,6 +1054,49 @@ button:disabled {
   scroll-snap-align: start;
   flex-shrink: 0;
   width: 180px;
+}
+
+/* Marquee styles */
+.marquee-container {
+  overflow: hidden;
+  padding-block: var(--sp-2);
+}
+
+.marquee-container:hover .marquee-track {
+  animation-play-state: paused;
+}
+
+.marquee-track {
+  display: flex;
+  gap: var(--sp-3);
+  width: max-content;
+  animation: marqueeLeft var(--marquee-dur, 40s) linear infinite;
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+.marquee-track--reverse {
+  animation-direction: reverse;
+}
+
+@keyframes marqueeLeft {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+.marquee-track > * {
+  flex-shrink: 0;
+  width: 180px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track {
+    animation: none !important;
+    transform: none !important;
+  }
+  .marquee-container:hover .marquee-track {
+    animation-play-state: inherit;
+  }
 }
 
 /* Stats grid */

@@ -97,9 +97,63 @@
 14. **Task 14 — Reduce Motion (✅)** — `prefers-reduced-motion` block disables all animations/transitions.
 15. **Task 15 — Content Shell (✅)** — `.main` padding accounts for nav + mobile bar + safe-area. Container max-width. Browse/library controls. Empty state. Footer.
 
+---
+## Current Initiative: Home Tab Cinematic Redesign
+**Goal:** Redesign, optimize, and stabilize the Home tab experience to feel premium, cinematic, responsive, and highly polished.
+
+**Status:** 100% Complete ✅
+
+### Execution Plan:
+1. **Phase 1 — Hero Section Cinematic Upgrade (100% Complete ✅)**
+   - Enhanced `renderHeroSlide()` with CSS animation-based crossfade (replaced manual setTimeout opacity)
+   - Added Ken Burns slow-zoom effect on hero backgrounds via `@keyframes kenBurns`
+   - Added `fade-in-left` staggered content entrance animation
+   - Added IntersectionObserver via `setupHeroObserver()` to pause rotation when hero is off-screen
+   - Added keyboard navigation (ArrowLeft/ArrowRight) for hero slides
+   - Added touch swipe gesture support (`handleHeroSwipeStart`/`handleHeroSwipeEnd`) for mobile
+   - Added parallax scroll effect on hero (background scrolls slower than content)
+   - Added `goToHeroSlide(index)` programmatic navigation + `hero-dot` click handler
+   - Added `prefers-reduced-motion` respect for all hero animations
+   - Added `setupHeroTouch()` for passive touch event listeners
+   - Timer cleanup in `stopHeroRotation()` now also disconnects IntersectionObserver
+
+2. **Phase 2 — Marquee Animations Polish (100% Complete ✅)**
+   - Added `setupMarquees()` in `afterRender()` to dynamically set `--marquee-dur` based on content width for consistent scroll speed
+   - Added `transform: translateZ(0)` for GPU compositing on `.marquee-track`
+   - Added `prefers-reduced-motion` block to disable marquee animation and hover pause
+   - Default duration changed from 30s to 40s
+
+3. **Phase 3 — Completed Section Franchise Chronological Ordering (100% Complete ✅)**
+   - Created `SEASON_PATTERNS` regex array to match anime title patterns (e.g., "Season 1", "Part 2", "2nd Season", word seasons)
+   - Created `parseFranchise(title)` helper to extract base franchise name + season number
+   - Created `sortCompletedEntries(entries)` that sorts by: franchise group (alphabetical) → season number → release year
+   - Replaced basic alphabetical sorting in `renderHome()` with franchise-aware sorting
+
+4. **Phase 4 — Global Data Audit & Rendering Fixes (100% Complete ✅)**
+   - Fixed critical bug in `normalizeAnime()` where Anikoto's `poster` field was not mapped to `cover` (all browse/trending covers were broken)
+   - Added Anikoto `score` (string like "8.59") → `averageScore` (0-100 integer) conversion with Math.round(score * 10)
+   - Added Anikoto `terms_by_type.genre` → `genres` mapping
+   - Added Anikoto `terms_by_type.type` → `format` mapping
+   - Added proper title handling for Anikoto string titles (title=English, alternative=Romaji)
+   - Created `getCoverSrc(anime)` centralized image fallback utility (handles AniList + Anikoto + localStorage formats)
+   - Created `renderImgSafe(src, alt)` with `onerror` handler to hide broken images
+   - Updated `renderCard()`, `renderEntryCard()`, `renderContinueCard()`, `renderDetailOverlay()` to use centralized helpers
+   - Fixed hero banner fallback: `anime.banner || getCoverSrc(anime)` instead of just `anime.cover`
+   - Updated stats page top-episode cards to use `getCoverSrc()`
+   - Added CSS rule `img[style*="display:none"]` to fully hide broken images
+
+5. **Phase 5 — Final Validation (100% Complete ✅)**
+   - All 93 tests pass (18 test files, 0 failures)
+   - No regressions in existing functionality
+
 ### Notes for Future AIs:
 - `sw.js` cache bumped from `ember-v1-cache` → `ember-v2-cache`. Users must hard-refresh or clear SW cache to see the new styles.
 - Inter font is loaded via `@import` at the top of `styles.css`. Do NOT add it to `index.html` to avoid a duplicate load.
 - The Ember logo gradient (`#f59e0b` → `var(--accent-hi)`) is intentionally preserved in `.nav__name` as the brand identity. All other UI uses violet tokens.
 - Legacy CSS variable aliases are defined in `:root` so `app.js` inline styles (e.g. `color:var(--accent)`, `var(--space-lg)`) continue to resolve correctly without any JS changes.
 - The `--font-display` alias now points to Inter (same as `--font-main`). The Outfit/Plus Jakarta Sans imports were removed.
+- Use `getCoverSrc(anime)` for all cover image lookups — it handles AniList (`coverImage.large`), Anikoto (`poster`), and localStorage (`cover`) formats.
+- Use `renderImgSafe(src, alt)` for rendering images with broken-image fallback.
+- Hero animations use CSS classes (`hero__bg--ken-burns`, `hero__bg--crossfade-in`) — add new animation classes in `styles.css` under the hero section.
+- Franchise ordering is done client-side via title pattern matching (`parseFranchise`). Extend `SEASON_PATTERNS` regex array if new title formats appear.
+- The `setupHeroTouch()` function adds passive touch listeners — no need for manual swipe handling in components.
