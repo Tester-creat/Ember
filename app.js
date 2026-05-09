@@ -1499,9 +1499,7 @@ function renderWatch() {
       <div class="watch-sidebar__title">Episodes${totalLabel !== "?" ? ` (${totalLabel})` : ""}</div>
 
       <!-- Feature 1: group selector — only shown when total > EP_GROUP_SIZE -->
-      ${groups.length > 1 ? `<div class="ep-group-selector" id="epGroupSelector">
-        ${groups.map((g, i) => `<button class="ep-group-chip ${i === currentEpisodeGroup ? "is-active" : ""}" data-action="set-episode-group" data-group="${i}">${g.label}</button>`).join("")}
-      </div>` : ""}
+      ${groups.length > 1 ? renderGroupDropdown(totalEps, currentEpisodeGroup) : ""}
 
       <div class="watch-sidebar__list" id="episodeListContainer">
         ${renderEpisodeList(entry, totalEps)}
@@ -1556,12 +1554,20 @@ function paintEpisodeList() {
   // Sync group to current episode
   currentEpisodeGroup = getGroupForEpisode(currentEpisode, groups);
 
-  // Update group selector chips (active state only — no DOM rebuild needed)
-  const selector = document.getElementById("epGroupSelector");
-  if (selector) {
-    selector.querySelectorAll(".ep-group-chip").forEach((chip, i) => {
-      chip.classList.toggle("is-active", i === currentEpisodeGroup);
+  // Update group selector label and active state
+  const btn = document.querySelector(".episode-group-btn");
+  if (btn) {
+    const group = groups[currentEpisodeGroup];
+    btn.innerHTML = `Episodes ${group.start} – ${group.end} <span class="chevron">▾</span>`;
+  }
+  
+  const list = document.querySelector(".episode-group-list");
+  if (list) {
+    list.querySelectorAll("li").forEach((li, i) => {
+      li.classList.toggle("is-active", i === currentEpisodeGroup);
     });
+    // If open and group changed via navigation, auto-close
+    if (list.classList.contains("is-open")) toggleEpisodeDropdown(false);
   }
 
   // Update episode list content
@@ -1571,6 +1577,62 @@ function paintEpisodeList() {
     // Auto-scroll the current episode into view
     const currentRow = listContainer.querySelector(".ep-row.is-current");
     if (currentRow) currentRow.scrollIntoView({ block: "nearest" });
+  }
+}
+
+/** Renders the new custom dropdown selector for episode groups */
+function renderGroupDropdown(total, activeIdx) {
+  const groups = getEpisodeGroups(total);
+  const active = groups[activeIdx] || groups[0];
+  
+  return `
+    <div class="ep-group-selector" id="epGroupSelector">
+      <button class="episode-group-btn" data-action="toggle-ep-groups">
+        Episodes ${active.start} – ${active.end} <span class="chevron">▾</span>
+      </button>
+      <ul class="episode-group-list">
+        ${groups.map((g, i) => `
+          <li class="${i === activeIdx ? 'is-active' : ''}" data-action="select-ep-group" data-group="${i}">
+            Episodes ${g.start} – ${g.end}
+          </li>
+        `).join("")}
+      </ul>
+    </div>
+  `;
+}
+
+/** Toggles the episode group dropdown state */
+function toggleEpisodeDropdown(forceState) {
+  const selector = document.getElementById("epGroupSelector");
+  const btn = selector?.querySelector(".episode-group-btn");
+  const list = selector?.querySelector(".episode-group-list");
+  if (!selector || !btn || !list) return;
+
+  const isOpen = forceState !== undefined ? forceState : !list.classList.contains("is-open");
+  
+  list.classList.toggle("is-open", isOpen);
+  btn.classList.toggle("is-active", isOpen);
+
+  if (isOpen) {
+    document.addEventListener("click", handleOutsideClick);
+    document.addEventListener("keydown", handleDropdownKeydown);
+  } else {
+    document.removeEventListener("click", handleOutsideClick);
+    document.removeEventListener("keydown", handleDropdownKeydown);
+  }
+}
+
+function handleOutsideClick(e) {
+  const selector = document.getElementById("epGroupSelector");
+  if (selector && !selector.contains(e.target)) {
+    toggleEpisodeDropdown(false);
+  }
+}
+
+function handleDropdownKeydown(e) {
+  if (e.key === "Escape") {
+    toggleEpisodeDropdown(false);
+    document.querySelector(".episode-group-btn")?.focus();
   }
 }
 
@@ -2061,8 +2123,13 @@ document.addEventListener("click", e => {
     }
   }
 
+  // Feature 1: dropdown toggle
+  if (action === "toggle-ep-groups") {
+    toggleEpisodeDropdown();
+  }
+
   // Feature 1: switch episode group without changing current episode
-  if (action === "set-episode-group") {
+  if (action === "select-ep-group") {
     const groupIdx = Number(target.dataset.group);
     if (!isNaN(groupIdx) && currentWatchId) {
       currentEpisodeGroup = groupIdx;
@@ -2078,6 +2145,8 @@ document.addEventListener("click", e => {
         }
       }
       paintEpisodeList();
+      toggleEpisodeDropdown(false);
+      renderContent();
     }
   }
 

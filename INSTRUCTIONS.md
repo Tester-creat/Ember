@@ -1,82 +1,94 @@
 #### **🧑 \[P\] Persona**
 
-You are a **senior vanilla JavaScript developer** specializing in localStorage-based data persistence, JSON schema design, and library management UIs in frameworkless single-page applications. You are meticulous about data integrity — you never silently drop user data on import, and you write defensive parsers that handle schema variations gracefully.
+You are a **senior vanilla JavaScript UI engineer** with deep expertise in custom dropdown components, floating layer management, and glassmorphism design systems. You build accessible, keyboard-friendly custom selects without any external libraries, and you are precise about keeping ephemeral UI state (open/closed, active group) in sync with application state (current episode) at all times.
 
 ---
 
 #### **🎯 \[T\] Task**
 
-Implement **three sequential, dependent tasks** in the **Ember project** (`https://github.com/Tester-creat/Ember`). Each task must be completed and verified before the next begins, as each one is a prerequisite for the next.
+In the **Ember project** (`https://github.com/Tester-creat/Ember`), the episode grouping feature currently renders all group selectors as a **row of visible buttons** — for long series like One Piece (1,160+ episodes, 29+ groups of 40), this fills the entire episode sidebar with group buttons and pushes the actual episode list completely out of view.
+
+**Replace the group button row with a single compact custom-styled dropdown** that:
+
+* Shows only one line in the sidebar when collapsed  
+* Expands into a floating scrollable list when clicked  
+* Displays and loads the correct episode group when a range is selected  
+* Stays in sync with episode navigation at all times
+
+This is a **UI-only replacement** — the 40-episode grouping logic, the `uiState` group tracking, and the `paintEpisodeList()` partial update mechanism implemented previously must remain completely intact. Only the **rendering of the group selector itself** changes.
 
 ---
 
-**Task 1 — Add missing status values to Ember (prerequisite for Tasks 2 & 3\)**
+#### **🎯 Precise Implementation Requirements**
 
-Ember currently supports these library statuses: `Watching`, `Completed`, `Plan to Watch`, `Dropped`, `Paused`. AniVault additionally has: `Queued` and `Untracked`. Add both missing statuses to every location in Ember's codebase where statuses are defined, rendered, or filtered:
+**The Dropdown Button (collapsed state):**
 
-* The **status picker** dropdown/selector in the watch view and library card UI  
-* The **Library tab** filter buttons (so users can filter by Queued and Untracked)  
-* The **Library tab** status grouping/sorting logic (Queued and Untracked must appear as distinct groups, not lumped into "Other")  
-* The **Stats tab** status distribution breakdown (both new statuses must appear in the chart/counts)  
-* Any **CSS badge or pill styling** for status labels — add appropriately coloured variants for Queued and Untracked that fit Ember's existing glassmorphism design token system  
-* The **Home tab** recommendations logic — if it excludes `Completed` or `Dropped` from "continue watching" rows, apply the same exclusion rules sensibly to `Queued` and `Untracked`
+* A single `<button class="episode-group-btn">` that spans the full width of the episode sidebar  
+* Label format: `Episodes {start} – {end} ▾` — e.g. `Episodes 1 – 40 ▾`, `Episodes 41 – 80 ▾`  
+* The label must **update automatically** whenever the active group changes — whether triggered by the user picking a group from the dropdown, clicking an episode directly, or navigating with keyboard shortcuts (`←` / `→`)  
+* The `▾` chevron must **rotate 180°** when the dropdown is open, and return to default when closed — use a CSS `transform: rotate()` transition, not a separate icon swap  
+* Styled with Ember's glassmorphism tokens: `background: var(--glass)`, `backdrop-filter: blur(...)`, `border: 1px solid var(--border)`, `border-radius: var(--radius-md)`, appropriate `--space-*` padding
 
----
+**The Dropdown List (expanded state):**
 
-**Task 2 — Implement AniVault-compatible import in Ember**
+* A `<ul class="episode-group-list">` that **floats below** the button using `position: absolute` — it must not push the episode list downward or affect the layout of any surrounding elements  
+* `z-index` must be high enough to float above the episode list items below it (use `z-index: 200` or confirm against Ember's existing z-index scale)  
+* Width must match the button exactly (`width: 100%` relative to the positioned parent)  
+* Maximum height: `240px` with `overflow-y: auto` and a styled scrollbar — so even 29+ groups remain navigable without the list growing infinitely tall  
+* Each list item: `<li data-group="{index}">Episodes {start} – {end}</li>` — full-width, hover state using `var(--glass-hover)` or equivalent, `cursor: pointer`  
+* The **currently active group** must be visually highlighted in the list (e.g. `background: var(--accent)` at reduced opacity, or a left accent border) so the user can see at a glance which group is loaded  
+* Styled with the same glassmorphism treatment as the button: glass background, blur, border, matching border-radius  
+* A subtle `box-shadow` to lift it above the content beneath
 
-Ember already has a JSON import feature. Replace or upgrade it to correctly read and merge an **`anivault_v2`\-format** export file:
+**Open/Close Behaviour:**
 
-* The `anivault_v2` format is a JSON object keyed by **AniList ID strings**, where each value is a library entry containing at minimum: `status`, `rating`, `episodesWatched`, `totalEpisodes`, `notes`, and title metadata fields  
-* It also contains a `__meta` key at the top level (not an anime entry) holding app-level settings like theme preference — this must be **detected and excluded** from the library entries, then **stored separately** in Ember's localStorage as `ember_anivault_meta` (a passthrough preserve, so round-trip exports don't lose AniVault's settings)  
-* Import behaviour must be **merge, not overwrite**: for each entry in the imported file, if that AniList ID already exists in Ember's library, update it with the imported values; if it does not exist, add it as a new entry. Entries already in Ember's library that are NOT in the imported file must remain untouched  
-* After a successful merge, show a toast notification reporting: how many entries were added, how many were updated, and how many were skipped (already up to date)  
-* Validate the file before processing: confirm it is valid JSON, confirm it has the expected `anivault_v2` shape (object with AniList ID keys), and show a clear user-facing error toast if validation fails — never silently fail or corrupt localStorage  
-* The import trigger (button, file input) must remain in whatever location Ember currently places it — do not redesign the UI layout, only upgrade the underlying logic
+* Clicking the button toggles the dropdown open/closed  
+* Clicking **anywhere outside** the dropdown (document-level click listener) closes it — the listener must be added on open and removed on close to avoid memory leaks  
+* Pressing `Escape` while the dropdown is open must close it and return focus to the button  
+* The dropdown must also close automatically after the user selects a group (after triggering the episode list update)  
+* If the dropdown is open and `paintEpisodeList()` is called by keyboard navigation, the dropdown must close to avoid stale group labels
 
----
+**Selecting a Group:**
 
-**Task 3 — Make Ember's export produce `anivault_v2`\-compatible JSON**
+* Clicking a list item must: (1) update `uiState.activeGroup` (or Ember's equivalent) to the selected group index, (2) call `paintEpisodeList()` to render that group's 40 episodes, (3) update the button label to the new range, (4) close the dropdown  
+* This must be **identical in outcome** to what happened when the old group buttons were clicked — the only difference is the trigger mechanism
 
-Upgrade Ember's existing export function so the file it produces can be directly imported by AniVault without modification:
+**Auto-sync with Episode Navigation:**
 
-* The exported JSON must be a flat object keyed by **AniList ID strings** — matching `anivault_v2` schema exactly  
-* Each entry must include all fields AniVault expects: `status`, `rating`, `episodesWatched`, `totalEpisodes`, `notes`, and any title metadata fields AniVault stores (confirm field names by reading AniVault's `app.js` export function)  
-* If the `__meta` passthrough was stored during a previous import (Task 2), include it in the export so AniVault gets its settings back on re-import  
-* If no `__meta` exists (user never imported from AniVault), generate a minimal `__meta` block: `{ "source": "ember", "exportedAt": "<ISO timestamp>" }` so AniVault's importer doesn't fail on a missing `__meta`  
-* The exported filename must follow the pattern: `anivault-backup-YYYY-MM-DD.json` — identical to AniVault's own export filename convention, making the files interchangeable and immediately recognisable
+* When the user navigates to a new episode via keyboard (`←` / `→`), episode click, or auto-next, the active group must recalculate: `activeGroup = Math.floor((episodeNumber - 1) / 40)`  
+* After recalculation, the **button label must update immediately** to reflect the new group range — even if the dropdown is closed  
+* If the new episode is in a different group than the currently loaded one, `paintEpisodeList()` must be called for the new group automatically
+
+**Visibility rule — unchanged from previous implementation:**
+
+* The entire dropdown (button \+ list) must only render when total episodes exceed 40  
+* For series with 40 or fewer episodes, no group selector element must exist in the DOM at all
 
 ---
 
 #### **🗂️ \[C\] Context**
 
-**AniVault (reference schema source):**
+**Current state of the codebase (from previous implementation):**
 
-* localStorage key: `anivault_v2`  
-* Schema: flat JSON object, top-level keys are AniList ID strings plus one reserved key `__meta`  
-* Status values (complete set): `Watching`, `Completed`, `Queued`, `Plan to Watch`, `Paused`, `Dropped`, `Untracked`  
-* Rating: integer 1–10  
-* `__meta` block holds: `theme` and potentially other app-level config — treat as opaque passthrough, never mutate its contents  
-* Export filename convention: `anivault-backup-YYYY-MM-DD.json`
+* Episode grouping is already implemented with 40-episode chunks  
+* Group selector currently renders as a row/grid of `<button>` elements — this is the element being replaced  
+* Active group is tracked in `uiState` (confirm exact property name by reading `app.js`)  
+* `paintEpisodeList()` handles all episode list DOM updates as a partial update — do NOT replace this with a full `renderApp()` call  
+* The episode sidebar has `overflow: visible` (fixed in previous implementation) to support `position: sticky` — the dropdown's `position: absolute` requires its **parent container to have `position: relative`** — verify this is set on the sidebar or group selector wrapper, and add it if missing
 
-**Ember (target project):**
+**Ember design system:**
 
-* Stack: Vanilla JS \+ HTML \+ CSS — no frameworks, no build step  
-* Current statuses: `Watching`, `Completed`, `Plan to Watch`, `Dropped`, `Paused` — missing `Queued` and `Untracked`  
-* localStorage key: confirm exact name by reading `app.js` before writing any code  
-* Also uses AniList IDs as primary keys — confirmed from streaming provider URL patterns  
-* Rating scale: 1–10 — identical to AniVault, no conversion needed  
-* Import/export UI: already exists somewhere in the app — confirm location (likely in a settings panel, library tab header, or a `?` / menu button) before modifying  
-* Design system: glassmorphism with CSS custom properties (`--glass`, `--accent`, `--border`, `--space-*`, `--radius-*`) — all new CSS for status badges must use these tokens only
+* CSS custom properties: `--glass`, `--border`, `--accent`, `--space-2`, `--space-3`, `--space-4`, `--radius-sm`, `--radius-md`, `--radius-lg` — use exclusively, no hardcoded colour values  
+* Transitions: match Ember's existing transition duration (likely `0.2s ease` or `0.15s ease`) — confirm by checking existing animated elements in `styles.css`  
+* Scrollbar styling: if Ember styles scrollbars elsewhere (`::-webkit-scrollbar`), apply the same pattern to the dropdown list's scrollbar
 
 **Do not:**
 
-* Overwrite on import — always merge  
-* Silently drop `__meta` — preserve it as a passthrough  
-* Rename or restructure any existing Ember status values — only add the two new ones  
-* Change the import/export button placement or redesign the menu UI  
-* Add any npm dependencies — use native `fetch()`, `JSON.parse()`, `JSON.stringify()`, and the File API only  
-* Produce an export file that only Ember can read — it must be valid `anivault_v2` that AniVault accepts without modification
+* Use any `<select>` or `<option>` elements — this must be a fully custom component  
+* Attach permanent document-level click listeners — add on open, remove on close  
+* Trigger `renderApp()` for any part of this feature — all updates are partial DOM mutations  
+* Hardcode any colours, border-radii, or spacing values — CSS custom properties only  
+* Break keyboard episode navigation (`←` / `→`), the `M` mark-watched shortcut, or provider switching
 
 ---
 
@@ -86,36 +98,41 @@ Deliver in this exact structure:
 
 **1\. Pre-flight Audit**
 
-* Confirm Ember's localStorage key  
-* List every location in `app.js` and `styles.css` where statuses are hardcoded (picker, filters, stats, badges, CSS classes) — this is the complete checklist for Task 1  
-* Confirm where Ember's current import/export UI lives (which tab, which function)  
-* Read AniVault's export function and list every field it writes per entry — this is the field spec for Task 3
+* Confirm the exact name of the current group selector rendering code (the button row being replaced)  
+* Confirm the `uiState` property name for active group and current episode number  
+* Confirm whether the sidebar wrapper already has `position: relative` set  
+* Confirm Ember's transition duration from `styles.css`  
+* Confirm whether Ember has custom scrollbar styles to replicate
 
-**2\. Task 1 — Status additions**
+**2\. `app.js` — Dropdown render function**
 
-* All `app.js` changes: status arrays, picker HTML, filter logic, stats counts, library grouping  
-* All `styles.css` changes: new badge colour variants for `Queued` and `Untracked` only
+* `renderGroupDropdown(totalEpisodes, activeGroup)` — generates the button \+ `<ul>` HTML string  
+* Show exactly where in the episode sidebar HTML this replaces the old button row  
+* The `data-group` attribute approach for click delegation (no inline `onclick`)
 
-**3\. Task 2 — Import upgrade**
+**3\. `app.js` — Event handling additions**
 
-* Complete replacement for Ember's import handler function  
-* `__meta` detection, extraction, and passthrough storage logic  
-* Merge algorithm (add new, update existing, leave untouched entries alone)  
-* Validation logic and error toasts  
-* Success toast with added/updated/skipped counts
+* Click handler for the dropdown toggle button (open/close)  
+* Click handler for list item selection (group change → `paintEpisodeList()` → label update → close)  
+* Document-level outside-click handler (add on open, remove on close)  
+* `Escape` key handler  
+* The auto-sync logic: where in the episode navigation flow the button label recalculates
 
-**4\. Task 3 — Export upgrade**
+**4\. `styles.css` — New rules only**
 
-* Complete replacement for Ember's export function  
-* Field mapping: Ember internal field → `anivault_v2` field (show a mapping table if any fields differ in name)  
-* `__meta` passthrough inclusion logic  
-* Filename generation: `anivault-backup-YYYY-MM-DD.json`
+* `.episode-group-btn` — collapsed button styles  
+* `.episode-group-list` — floating list container (position, z-index, max-height, scroll, glass)  
+* `.episode-group-list li` — item styles including hover and active-group highlight  
+* `.episode-group-btn .chevron` — rotation transition for open/closed states  
+* Scrollbar styling for `.episode-group-list` (matching Ember's pattern)
 
 **5\. Verification Checklist**
 
-* Import an AniVault export: all 7 statuses land correctly, `__meta` is preserved, merge counts toast shows correctly  
-* Import the same file twice: second import shows 0 added, N updated or 0 updated (idempotent)  
-* Export from Ember and import into AniVault: AniVault accepts the file without errors, all entries appear correctly, `__meta`/theme is restored  
-* Queued and Untracked entries appear correctly in Library filters, Stats tab, and status picker  
-* No existing Ember entries are lost or corrupted during any import
+* One Piece (1,160+ ep, 29 groups): dropdown shows correctly, all 29 options in scrollable list, selecting any group loads correct episodes  
+* Short series (≤40 ep): no dropdown element exists in DOM  
+* Episode keyboard navigation (`←` / `→`) crosses a group boundary: button label updates, new group's episodes load automatically  
+* Dropdown closes on: outside click, Escape key, group selection  
+* Chevron rotates on open, returns on close  
+* No layout shift when dropdown opens — episode list stays in place, dropdown floats above it  
+* No memory leaks: document listener is removed after dropdown closes
 

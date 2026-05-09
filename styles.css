@@ -1121,6 +1121,7 @@ button:disabled {
   overflow: visible; /* must be visible to allow sticky group selector */
   display: flex;
   flex-direction: column;
+  position: relative; /* Added for absolute dropdown child */
 }
 
 @media (min-width: 1024px) {
@@ -2207,44 +2208,114 @@ body::before {
   text-align: right;
 }
 
-/* ══ FEATURE 1: EPISODE GROUP SELECTOR ════════════════════════ */
+/* ══ FEATURE 1: EPISODE GROUP SELECTOR (DROPDOWN) ══════════════ */
 .ep-group-selector {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-1);
   padding: var(--sp-2) var(--sp-3);
   border-bottom: 1px solid var(--border);
   background: var(--glass-bg);
-  /* Sticky so it stays visible while scrolling the episode list */
   position: sticky;
   top: 0;
   z-index: var(--z-raised);
 }
 
-.ep-group-chip {
-  padding: 4px 10px;
-  border-radius: var(--r-xl);
-  font-size: var(--t-xs);
-  font-weight: 600;
-  background: var(--surface);
+.episode-group-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px var(--sp-4);
+  background: var(--glass);
+  backdrop-filter: var(--blur-sm);
+  -webkit-backdrop-filter: var(--blur-sm);
   border: 1px solid var(--border);
-  color: var(--text2);
+  border-radius: var(--radius-md);
+  font-size: var(--t-sm);
+  font-weight: 700;
+  color: var(--text1);
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out),
-              color     var(--dur-fast) var(--ease-out),
-              border-color var(--dur-fast);
-  white-space: nowrap;
+  transition: background var(--dur-fast), border-color var(--dur-fast), box-shadow var(--dur-fast);
 }
 
-.ep-group-chip:hover {
-  background: var(--surface-md);
+.episode-group-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--glass-border-hover);
+}
+
+.episode-group-btn.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.episode-group-btn .chevron {
+  display: inline-block;
+  transition: transform var(--dur-base) var(--ease-out);
+  font-size: 1.1em;
+  line-height: 1;
+}
+
+.episode-group-btn.is-active .chevron {
+  transform: rotate(180deg);
+}
+
+.episode-group-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin: var(--sp-1) var(--sp-3);
+  padding: var(--sp-1) 0;
+  background: var(--bg2);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--border-md);
+  border-radius: var(--radius-md);
+  list-style: none;
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 200;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-8px);
+  transition: opacity var(--dur-fast), transform var(--dur-fast), visibility var(--dur-fast);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+}
+
+.episode-group-list.is-open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.episode-group-list li {
+  padding: 10px var(--sp-4);
+  font-size: var(--t-sm);
+  font-weight: 500;
+  color: var(--text2);
+  cursor: pointer;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+
+.episode-group-list li:hover {
+  background: var(--surface-hover);
   color: var(--text1);
 }
 
-.ep-group-chip.is-active {
+.episode-group-list li.is-active {
   background: var(--accent-dim);
-  border-color: rgba(124,58,237,0.35);
   color: var(--accent-hi);
+  border-left: 3px solid var(--accent);
+}
+
+/* Custom scrollbar for group list */
+.episode-group-list::-webkit-scrollbar {
+  width: 4px;
+}
+.episode-group-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.episode-group-list::-webkit-scrollbar-thumb {
+  background: var(--border-md);
+  border-radius: 2px;
 }
 
 /* ══ FEATURE 2: WATCH ORDER PANEL ═════════════════════════════ */
