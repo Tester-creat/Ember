@@ -177,7 +177,7 @@ async function preloadEpisodeUrls(anilistId) {
   }
   if (!anikotoId) return;
   try {
-    const res = await fetch(`/api/anikoto/series/${anikotoId}`);
+    const res = await anikotoFetch(`/series/${anikotoId}`);
     const data = await res.json();
     if (data.ok && data.data) {
       if (data.data.anime?.episodes) {
@@ -270,7 +270,7 @@ async function loadSeasonal(season, year, page = 1) {
   renderContent();
   try {
     if (page === 1) seasonalData.results = [];
-    const res = await fetch(`/api/anikoto/recent-anime?page=${page}&per_page=50`);
+    const res = await anikotoFetch(`/recent-anime?page=${page}&per_page=50`);
     const data = await res.json();
     if (!data.ok) throw new Error(data.message || 'API error');
     const raw = data.data || [];
