@@ -1,33 +1,16 @@
-# Ember
+# React + Vite
 
-A ShuttleTV.su-inspired anime streaming platform with a transparent glass UI. Stream episodes from multiple providers, track your watch progress, rate titles, and manage your library — all in your browser.
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
-## Features
+Currently, two official plugins are available:
 
-- **Streaming** — 4 providers (MegaPlay, Cinetaro, VidPlus, VidNest) with auto-fallback
-- **Anikoto API** — Resolves verified embed URLs for better stream reliability
-- **Library** — Track watching, completed, plan-to-watch, dropped, paused
-- **Rating** — 5-star (1–10) rating per title
-- **Seasonal** — Browse current/upcoming season anime
-- **Notes** — Per-title personal notes
-- **Import/Export** — JSON library backup
-- **Keyboard Shortcuts** — Press `?` to view all shortcuts
-- **Stats Dashboard** — Library overview with completion rate and average rating
-- **Service Worker** — Offline-capable cache
-- **No accounts, no servers** — Everything in localStorage
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
 
-## Quick Start
+## React Compiler
 
-```bash
-npx serve .
-```
+The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
 
-## Test
+## Expanding the ESLint configuration
 
-```bash
-npm test
-```
-
-## Tech
-
-Vanilla JS, HTML, CSS — no frameworks, no build step.
+If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
