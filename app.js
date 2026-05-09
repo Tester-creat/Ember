@@ -6,9 +6,16 @@ let browseData = { results: [], loading: false, error: null, page: 0, mode: "tre
 let seasonalData = { results: [], loading: false, error: null, page: 0, season: null, year: null };
 let currentWatchId = null;
 let currentEpisode = 1;
+let currentEpisodeGroup = 0;   // Feature 1: active 40-ep group index (survives re-renders)
 let searchResults = [];
 let pendingSearchQuery = "";
 const ANILIST_API = "https://graphql.anilist.co";
+
+// Feature 1: group size constant — 40 episodes per group
+const EP_GROUP_SIZE = 40;
+
+// Feature 2: franchise relations cache keyed by anilistId
+const franchiseCache = {};
 
 /* ══ PROVIDERS ════════════════════════════════════════════════ */
 const episodeEmbedCache = {};
@@ -418,6 +425,162 @@ function getStatusLabel(s) {
   return map[s] || s || "Add to List";
 }
 
+/* ══ FEATURE 2: WATCH ORDER ════════════════════════════════════ */
+
+// AniList relation types to include in the watch order panel
+const WATCH_ORDER_RELATIONS = new Set([
+  "PREQUEL", "SEQUEL", "SIDE_STORY", "ALTERNATIVE",
+  "SPIN_OFF", "PARENT", "COMPILATION", "CONTAINS"
+]);
+
+// Human-readable labels for each relation type
+const RELATION_LABELS = {
+  PREQUEL:     "Prequel",
+  SEQUEL:      "Sequel",
+  PARENT:      "Parent Story",
+  SIDE_STORY:  "Side Story",
+  SPIN_OFF:    "Spin-off",
+  ALTERNATIVE: "Alternative",
+  COMPILATION: "Compilation",
+  CONTAINS:    "Contains",
+};
+
+// Sort priority: lower = shown first
+const RELATION_PRIORITY = {
+  PREQUEL: 1, PARENT: 2, SEQUEL: 3,
+  SIDE_STORY: 4, SPIN_OFF: 5,
+  CONTAINS: 6, COMPILATION: 7, ALTERNATIVE: 8
+};
+
+// GraphQL query — fetches relations for a given AniList anime ID
+const WATCH_ORDER_QUERY = `
+query($id: Int) {
+  Media(id: $id, type: ANIME) {
+    title { romaji english }
+    relations {
+      edges {
+        relationType
+        node {
+          id
+          type
+          title { romaji english }
+          coverImage { medium large }
+          format
+          status
+          episodes
+          seasonYear
+          averageScore
+        }
+      }
+    }
+  }
+}`;
+
+/**
+ * Fetches franchise relations from AniList and injects the Watch Order panel
+ * into #watchOrderMount. This is a targeted partial DOM update — it never
+ * calls renderContent() or renderApp().
+ *
+ * @param {number} anilistId - The AniList ID of the currently-watching anime
+ */
+async function renderWatchOrder(anilistId) {
+  const mount = document.getElementById("watchOrderMount");
+  if (!mount) return;
+
+  // Show loading state immediately
+  mount.innerHTML = `<div class="wo-panel">
+    <div class="wo-panel__title">Watch Order</div>
+    <div class="wo-panel__loading">Loading related titles…</div>
+  </div>`;
+
+  // Return cached result if available
+  if (franchiseCache[anilistId]) {
+    _paintWatchOrder(mount, anilistId, franchiseCache[anilistId]);
+    return;
+  }
+
+  try {
+    const res = await fetch(ANILIST_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ query: WATCH_ORDER_QUERY, variables: { id: Number(anilistId) } })
+    });
+    if (!res.ok) throw new Error(`AniList HTTP ${res.status}`);
+    const json = await res.json();
+    const edges = json?.data?.Media?.relations?.edges || [];
+
+    // Filter to ANIME-type entries with known watch-order relation types
+    const relations = edges
+      .filter(e => e.node && e.node.type === "ANIME" && WATCH_ORDER_RELATIONS.has(e.relationType))
+      .map(e => ({ ...e.node, relationType: e.relationType }));
+
+    franchiseCache[anilistId] = relations;
+    _paintWatchOrder(mount, anilistId, relations);
+  } catch (err) {
+    // Graceful error state — don't crash the watch view
+    if (document.getElementById("watchOrderMount") === mount) {
+      mount.innerHTML = `<div class="wo-panel">
+        <div class="wo-panel__title">Watch Order</div>
+        <div class="wo-panel__empty">Could not load related titles.</div>
+      </div>`;
+    }
+  }
+}
+
+/** Injects the rendered watch-order HTML into the mount point. */
+function _paintWatchOrder(mount, anilistId, relations) {
+  // Guard: user may have navigated away while fetch was in flight
+  if (!document.getElementById("watchOrderMount")) return;
+  if (currentWatchId === null) return;
+
+  if (!relations.length) {
+    mount.innerHTML = `<div class="wo-panel">
+      <div class="wo-panel__title">Watch Order</div>
+      <div class="wo-panel__empty">No related titles found for this series.</div>
+    </div>`;
+    return;
+  }
+
+  // Sort: Prequel → Sequel → Side Story → Other
+  const sorted = [...relations].sort((a, b) => {
+    const pa = RELATION_PRIORITY[a.relationType] || 99;
+    const pb = RELATION_PRIORITY[b.relationType] || 99;
+    if (pa !== pb) return pa - pb;
+    return (a.seasonYear || 0) - (b.seasonYear || 0);
+  });
+
+  const cards = sorted.map(item => {
+    const title  = item.title?.english || item.title?.romaji || "Untitled";
+    const cover  = item.coverImage?.medium || item.coverImage?.large || "";
+    const badge  = RELATION_LABELS[item.relationType] || item.relationType;
+    const meta   = [
+      item.format ? item.format.replace(/_/g, " ") : "",
+      item.seasonYear || "",
+      item.episodes   ? `${item.episodes} eps` : "",
+    ].filter(Boolean).join(" · ");
+
+    // Check if this related title is already in the user's library
+    const inLibrary = !!getEntry(item.id);
+
+    return `<div class="wo-card" data-action="open-watch-order" data-id="${item.id}" role="button" tabindex="0">
+      <div class="wo-card__cover">
+        ${cover ? `<img src="${escapeHtml(cover)}" alt="${escapeHtml(title)}" loading="lazy">` : ""}
+      </div>
+      <div class="wo-card__body">
+        <div class="wo-card__badge">${escapeHtml(badge)}</div>
+        <div class="wo-card__title">${escapeHtml(title)}</div>
+        ${meta ? `<div class="wo-card__meta">${escapeHtml(meta)}</div>` : ""}
+        ${inLibrary ? `<div class="wo-card__in-library">In Library</div>` : ""}
+      </div>
+    </div>`;
+  }).join("");
+
+  mount.innerHTML = `<div class="wo-panel">
+    <div class="wo-panel__title">Watch Order</div>
+    <div class="wo-cards">${cards}</div>
+  </div>`;
+}
+
 /* ══ RENDER ════════════════════════════════════════════════════ */
 function renderContent() {
   const content = document.getElementById("content");
@@ -452,7 +615,15 @@ function afterRender() {
     const inp = document.getElementById("searchPageInput");
     if (inp) inp.focus();
   }
-  if (currentWatchId && currentTab === "watch") setupWatchPlayer();
+  if (currentWatchId && currentTab === "watch") {
+    setupWatchPlayer();
+    // Feature 1: scroll current episode into view after render
+    const currentRow = document.querySelector("#episodeListContainer .ep-row.is-current");
+    if (currentRow) currentRow.scrollIntoView({ block: "nearest" });
+    // Feature 2: load watch order panel (targeted async update, not a re-render)
+    const entry = getEntry(currentWatchId);
+    if (entry && entry.anilistId) renderWatchOrder(entry.anilistId);
+  }
   updateNavActive();
 }
 
@@ -1067,21 +1238,47 @@ function renderLibrary() {
 }
 
 /* ══ WATCH ══════════════════════════════════════════════════════ */
+
+// ── Feature 1 helpers ────────────────────────────────────────────
+
+/** Returns array of group objects: { start, end, label } for a given total. */
+function getEpisodeGroups(total) {
+  const groups = [];
+  // Use 9999 sentinel as a large-but-finite ceiling for windowing
+  const ceiling = total === 9999 ? Math.max(currentEpisode + EP_GROUP_SIZE, EP_GROUP_SIZE) : total;
+  for (let i = 1; i <= ceiling; i += EP_GROUP_SIZE) {
+    const start = i;
+    const end   = Math.min(i + EP_GROUP_SIZE - 1, ceiling);
+    groups.push({ start, end, label: `${start}–${end}` });
+  }
+  return groups;
+}
+
+/** Returns the group index that contains the given episode number. */
+function getGroupForEpisode(ep, groups) {
+  for (let i = 0; i < groups.length; i++) {
+    if (ep >= groups[i].start && ep <= groups[i].end) return i;
+  }
+  return 0;
+}
+
 function renderWatch() {
   const entry = getEntry(currentWatchId);
   if (!entry) return `<div class="empty-state"><div class="empty-state__title">Title not found</div></div>`;
 
   // 9999 is the sentinel for "ongoing / count unknown". Show "?" in the UI
   // instead of the raw number so users aren't confused.
-  const totalEps = entry.episodes || 9999;
+  const totalEps  = entry.episodes || 9999;
   const totalLabel = (totalEps === 9999) ? "?" : totalEps;
 
-  const provider = STREAM_PROVIDERS[currentProvider];
-  const canDub = dubAvailable[String(entry.anilistId)] !== false;
-  const langIcon = currentLanguage === "sub" ? "SUB" : "DUB";
-
-  // Only disable Next when we know the exact total and have reached it.
+  const provider    = STREAM_PROVIDERS[currentProvider];
+  const canDub      = dubAvailable[String(entry.anilistId)] !== false;
+  const langIcon    = currentLanguage === "sub" ? "SUB" : "DUB";
   const nextDisabled = (totalEps !== 9999 && currentEpisode >= totalEps) ? "disabled" : "";
+
+  // Feature 1: compute groups and ensure currentEpisodeGroup is in sync
+  const groups = getEpisodeGroups(totalEps);
+  currentEpisodeGroup = getGroupForEpisode(currentEpisode, groups);
 
   return `<div class="watch-layout">
     <div class="watch-main">
@@ -1107,10 +1304,19 @@ function renderWatch() {
           <button class="btn btn--glass btn--sm" data-action="close-watch" style="margin-left:auto">Close Player</button>
         </div>
       </div>
+
+      <!-- Feature 2: Watch Order panel rendered here after async fetch -->
+      <div id="watchOrderMount"></div>
     </div>
     <div class="watch-sidebar" id="episodeSidebar">
       <div class="watch-sidebar__title">Episodes${totalLabel !== "?" ? ` (${totalLabel})` : ""}</div>
-      <div class="watch-sidebar__list" style="overflow-y:auto;flex:1">
+
+      <!-- Feature 1: group selector — only shown when total > EP_GROUP_SIZE -->
+      ${groups.length > 1 ? `<div class="ep-group-selector" id="epGroupSelector">
+        ${groups.map((g, i) => `<button class="ep-group-chip ${i === currentEpisodeGroup ? "is-active" : ""}" data-action="set-episode-group" data-group="${i}">${g.label}</button>`).join("")}
+      </div>` : ""}
+
+      <div class="watch-sidebar__list" id="episodeListContainer">
         ${renderEpisodeList(entry, totalEps)}
       </div>
     </div>
@@ -1118,39 +1324,67 @@ function renderWatch() {
 }
 
 function renderEpisodeList(entry, total) {
-  // When total is the 9999 sentinel (ongoing / unknown count), render a
-  // windowed range of 100 episodes centred on the current episode so the
-  // DOM stays manageable. The user can still navigate freely with Prev/Next.
-  const WINDOW = 100;
-  const isUnknown = total === 9999;
-  const renderFrom = isUnknown ? Math.max(1, currentEpisode - Math.floor(WINDOW / 2)) : 1;
-  const renderTo   = isUnknown ? renderFrom + WINDOW - 1 : total;
+  // Feature 1: render only the 40 episodes of the current group.
+  // For unknown totals (9999 sentinel) we build groups dynamically based on
+  // how far the user has watched, so the list is always manageable.
+  const groups = getEpisodeGroups(total);
+
+  // Clamp group index in case total changed since last render
+  const groupIdx = Math.min(currentEpisodeGroup, groups.length - 1);
+  const group    = groups[groupIdx] || groups[0];
 
   let html = "";
 
-  // Show a note at the top when the list is windowed
-  if (isUnknown && renderFrom > 1) {
-    html += `<div class="ep-row" style="opacity:0.5;font-size:0.75rem;justify-content:center">
-      … episodes 1–${renderFrom - 1} (use Prev to navigate) …
-    </div>`;
-  }
-
-  for (let i = renderFrom; i <= renderTo; i++) {
+  for (let i = group.start; i <= group.end; i++) {
     const isCurrent = i === currentEpisode;
-    const watched = i <= (entry.episodesWatched || 0);
+    const watched   = i <= (entry.episodesWatched || 0);
     html += `<div class="ep-row ${isCurrent ? "is-current" : ""} ${watched ? "is-watched" : ""}" data-action="set-episode" data-ep="${i}" role="button" tabindex="0">
       <span class="ep-num">${watched ? "&#10003;" : i}</span>
       <span class="ep-info">Episode ${i}</span>
     </div>`;
   }
 
-  if (isUnknown) {
+  // For ongoing/unknown series, show a hint after the last rendered episode
+  if (total === 9999) {
     html += `<div class="ep-row" style="opacity:0.5;font-size:0.75rem;justify-content:center">
-      … use Next to continue beyond episode ${renderTo} …
+      … use Next to continue beyond episode ${group.end} …
     </div>`;
   }
 
   return html;
+}
+
+/**
+ * Feature 1: Targeted partial DOM update for the episode list and group selector.
+ * Called after any episode/group change instead of a full renderContent().
+ * Does NOT trigger renderApp() or renderContent().
+ */
+function paintEpisodeList() {
+  const entry = getEntry(currentWatchId);
+  if (!entry) return;
+
+  const total  = entry.episodes || 9999;
+  const groups = getEpisodeGroups(total);
+
+  // Sync group to current episode
+  currentEpisodeGroup = getGroupForEpisode(currentEpisode, groups);
+
+  // Update group selector chips (active state only — no DOM rebuild needed)
+  const selector = document.getElementById("epGroupSelector");
+  if (selector) {
+    selector.querySelectorAll(".ep-group-chip").forEach((chip, i) => {
+      chip.classList.toggle("is-active", i === currentEpisodeGroup);
+    });
+  }
+
+  // Update episode list content
+  const listContainer = document.getElementById("episodeListContainer");
+  if (listContainer) {
+    listContainer.innerHTML = renderEpisodeList(entry, total);
+    // Auto-scroll the current episode into view
+    const currentRow = listContainer.querySelector(".ep-row.is-current");
+    if (currentRow) currentRow.scrollIntoView({ block: "nearest" });
+  }
 }
 
 // buildStreamUrl — async-aware; callers that need a URL must await this.
@@ -1398,6 +1632,7 @@ async function openWatchView(id) {
   if (!entry) { showToast("Title not found.", "error"); return; }
   currentWatchId = id;
   currentProvider = 0;
+  currentEpisodeGroup = 0;   // Feature 1: reset group to start for new title
   currentLanguage = entry.language || "sub";
   entry.status = "watching";
   entry.lastWatched = Date.now();
@@ -1576,6 +1811,18 @@ document.addEventListener("click", e => {
     hideOverlay();
   }
 
+  // Feature 2: navigate to a related title from the Watch Order panel
+  if (action === "open-watch-order") {
+    const id = Number(target.dataset.id);
+    if (!id) return;
+    // If not in library yet, we can't watch it — show a toast and bail
+    if (!getEntry(id)) {
+      showToast("Add this title to your library first to watch it.", "info");
+      return;
+    }
+    openWatchView(id);
+  }
+
   if (action === "close-watch") {
     currentWatchId = null;
     currentTab = "home";
@@ -1589,16 +1836,52 @@ document.addEventListener("click", e => {
     if (!entry) return;
     // Use 9999 sentinel for unknown totals so Next is never blocked
     const total = entry.episodes || 9999;
-    if (total === 9999 || currentEpisode < total) { currentEpisode++; currentProvider = 0; renderContent(); }
+    if (total === 9999 || currentEpisode < total) {
+      currentEpisode++;
+      currentProvider = 0;
+      // Feature 1: targeted update — no full re-render needed for episode change
+      paintEpisodeList();
+      renderContent();
+    }
   }
 
   if (action === "prev-episode") {
-    if (currentEpisode > 1) { currentEpisode--; currentProvider = 0; renderContent(); }
+    if (currentEpisode > 1) {
+      currentEpisode--;
+      currentProvider = 0;
+      paintEpisodeList();
+      renderContent();
+    }
   }
 
   if (action === "set-episode") {
     const ep = Number(target.dataset.ep);
-    if (ep > 0) { currentEpisode = ep; currentProvider = 0; renderContent(); }
+    if (ep > 0) {
+      currentEpisode = ep;
+      currentProvider = 0;
+      paintEpisodeList();
+      renderContent();
+    }
+  }
+
+  // Feature 1: switch episode group without changing current episode
+  if (action === "set-episode-group") {
+    const groupIdx = Number(target.dataset.group);
+    if (!isNaN(groupIdx) && currentWatchId) {
+      currentEpisodeGroup = groupIdx;
+      // Jump current episode to the first episode of the selected group
+      const entry  = getEntry(currentWatchId);
+      const total  = entry ? (entry.episodes || 9999) : 9999;
+      const groups = getEpisodeGroups(total);
+      const group  = groups[groupIdx];
+      if (group) {
+        // Only move currentEpisode if it's outside the new group
+        if (currentEpisode < group.start || currentEpisode > group.end) {
+          currentEpisode = group.start;
+        }
+      }
+      paintEpisodeList();
+    }
   }
 
   if (action === "switch-provider") {
@@ -1720,6 +2003,28 @@ document.addEventListener("keydown", e => {
     saveData();
     renderContent();
     showToast(`Switched to ${currentLanguage === "sub" ? "Sub" : "Dub"}`, "success");
+  }
+
+  // Feature 1: ← → navigate episodes in watch view
+  if (currentWatchId && currentTab === "watch" && !e.target.closest("input,textarea")) {
+    if (e.key === "ArrowLeft" && currentEpisode > 1) {
+      e.preventDefault();
+      currentEpisode--;
+      currentProvider = 0;
+      paintEpisodeList();
+      renderContent();
+    }
+    if (e.key === "ArrowRight") {
+      const entry = getEntry(currentWatchId);
+      const total = entry ? (entry.episodes || 9999) : 9999;
+      if (total === 9999 || currentEpisode < total) {
+        e.preventDefault();
+        currentEpisode++;
+        currentProvider = 0;
+        paintEpisodeList();
+        renderContent();
+      }
+    }
   }
 });
 

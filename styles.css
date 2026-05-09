@@ -1111,7 +1111,7 @@ button:disabled {
   -webkit-backdrop-filter: var(--blur-sm);
   border: 1px solid var(--glass-border);
   border-radius: var(--r-lg);
-  overflow: hidden;
+  overflow: visible; /* must be visible to allow sticky group selector */
   display: flex;
   flex-direction: column;
 }
@@ -2174,4 +2174,164 @@ body::before {
   flex-shrink: 0;
   width: 36px;
   text-align: right;
+}
+
+/* ══ FEATURE 1: EPISODE GROUP SELECTOR ════════════════════════ */
+.ep-group-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--glass-bg);
+  /* Sticky so it stays visible while scrolling the episode list */
+  position: sticky;
+  top: 0;
+  z-index: var(--z-raised);
+}
+
+.ep-group-chip {
+  padding: 4px 10px;
+  border-radius: var(--r-xl);
+  font-size: var(--t-xs);
+  font-weight: 600;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text2);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out),
+              color     var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast);
+  white-space: nowrap;
+}
+
+.ep-group-chip:hover {
+  background: var(--surface-md);
+  color: var(--text1);
+}
+
+.ep-group-chip.is-active {
+  background: var(--accent-dim);
+  border-color: rgba(124,58,237,0.35);
+  color: var(--accent-hi);
+}
+
+/* ══ FEATURE 2: WATCH ORDER PANEL ═════════════════════════════ */
+.wo-panel {
+  margin-top: var(--sp-6);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: var(--sp-5);
+}
+
+.wo-panel__title {
+  font-size: var(--t-lg);
+  font-weight: 800;
+  color: var(--text1);
+  letter-spacing: -0.02em;
+  margin-bottom: var(--sp-4);
+}
+
+.wo-panel__loading,
+.wo-panel__empty {
+  font-size: var(--t-sm);
+  color: var(--text3);
+  padding: var(--sp-4) 0;
+  text-align: center;
+}
+
+.wo-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--sp-3);
+}
+
+@media (min-width: 768px) {
+  .wo-cards {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  }
+}
+
+.wo-card {
+  background: var(--surface-md);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform  var(--dur-base) var(--ease-spring),
+              box-shadow var(--dur-base) var(--ease-out),
+              border-color var(--dur-fast);
+  display: flex;
+  flex-direction: column;
+}
+
+.wo-card:hover {
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.4),
+              0 0 0 1px var(--accent) inset;
+  border-color: var(--border-md);
+}
+
+.wo-card__cover {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  background: var(--bg3);
+  overflow: hidden;
+}
+
+.wo-card__cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform var(--dur-slow) var(--ease-out);
+}
+
+.wo-card:hover .wo-card__cover img {
+  transform: scale(1.06);
+}
+
+.wo-card__body {
+  padding: var(--sp-2) var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  flex: 1;
+}
+
+.wo-card__badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--r-xl);
+  font-size: var(--t-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: var(--accent-dim);
+  color: var(--accent-hi);
+  border: 1px solid rgba(124,58,237,0.25);
+  width: fit-content;
+}
+
+.wo-card__title {
+  font-size: var(--t-xs);
+  font-weight: 600;
+  color: var(--text1);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.wo-card__meta {
+  font-size: var(--t-xs);
+  color: var(--text3);
+}
+
+.wo-card__in-library {
+  font-size: var(--t-xs);
+  font-weight: 600;
+  color: #22c55e;
+  margin-top: auto;
 }
