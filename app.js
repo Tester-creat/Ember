@@ -89,10 +89,10 @@ const STREAM_PROVIDERS = [
     },
     notes: "Primary — Anikoto /series/{id} native embed (s-2 path). Highest reliability." },
   { name: "VidNest", active: true, idType: "anilist",
-    buildUrl: (entry, ep, lang) => `https://vidnest.fun/anime/${entry.anilistId}/${ep}/${lang}`,
+    buildUrl: (entry, ep, lang) => `https://vidnest.fun/anime/${entry.anilistId || entry.id}/${ep}/${lang}`,
     notes: "Direct AniList ID embed. Reliable synchronous fallback." },
   { name: "VidSrc", active: true, idType: "anilist",
-    buildUrl: (entry, ep, lang) => `https://vidsrc.cc/v2/embed/anime/${entry.anilistId}/${ep}`,
+    buildUrl: (entry, ep, lang) => `https://vidsrc.cc/v2/embed/anime/${entry.anilistId || entry.id}/${ep}${lang === 'dub' ? '/dub' : ''}`,
     notes: "VidSrc anime embed. Direct AniList ID embed." }
 ];
 let currentProvider = 0;
