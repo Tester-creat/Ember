@@ -1115,7 +1115,9 @@ button:disabled {
 
 /* Marquee styles */
 .marquee-container {
-  overflow: hidden;
+  overflow: hidden !important;
+  overflow-x: hidden !important;
+  scroll-snap-type: none !important;
   padding-block: var(--sp-2);
 }
 
@@ -1130,7 +1132,6 @@ button:disabled {
   width: max-content;
   animation: marqueeLeft var(--marquee-dur, 40s) linear infinite;
   will-change: transform;
-  transform: translateZ(0);
 }
 
 .marquee-track--reverse {
@@ -1138,8 +1139,8 @@ button:disabled {
 }
 
 @keyframes marqueeLeft {
-  from { transform: translateX(0); }
-  to { transform: translateX(-50%); }
+  from { transform: translateX(0)                         translateZ(0); }
+  to   { transform: translateX(var(--marquee-translate, -50%)) translateZ(0); }
 }
 
 .marquee-track > * {

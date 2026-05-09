@@ -1226,13 +1226,27 @@ function setupMarquees() {
       document.querySelectorAll(".marquee-track").forEach(track => {
         const childCount = track.children.length / 2;
         if (childCount === 0) return;
+
+        // Use the browser's own layout engine to measure gap — avoids sub-pixel
+        // clamp() differences that cause Chrome/Firefox/Safari to disagree on the
+        // animation endpoint when using translateX(-50%).
         const gap = parseFloat(getComputedStyle(track).gap) || 12;
         const firstChild = track.children[0];
         const childWidth = firstChild?.getBoundingClientRect().width || 180;
-        const copyWidth = childCount * childWidth + (childCount - 1) * gap;
-        const speed = 60;
-        const dur = Math.max(copyWidth / speed, 15);
+
+        // Exact pixel distance of ONE copy:
+        //   N items * childWidth  +  N gaps
+        //   (N-1 inter-item gaps + 1 gap separating copy1 from copy2)
+        // padding-right: var(--sp-3) adds the trailing gap so the total track
+        // width is exactly 2 * copyWidthPx, making the loop seamless.
+        const copyWidthPx = childCount * childWidth + childCount * gap;
+
+        const speed = 60; // px / s — feel of the scroll speed
+        const dur = Math.max(copyWidthPx / speed, 15);
+
         track.style.setProperty("--marquee-dur", `${dur}s`);
+        // Set exact pixel translation so the keyframe endpoint is browser-agnostic
+        track.style.setProperty("--marquee-translate", `-${copyWidthPx}px`);
       });
     });
   });
