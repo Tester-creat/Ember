@@ -749,6 +749,13 @@ button:disabled {
   -webkit-backdrop-filter: var(--blur-sm);
 }
 
+/* AniVault interoperability — new status badges */
+[data-status="queued"]   .status-badge,
+.status-badge[data-status="queued"]   { background: rgba(245,158,11,0.18); color: #f59e0b; }
+
+[data-status="untracked"] .status-badge,
+.status-badge[data-status="untracked"] { background: var(--surface-md); color: var(--text3); }
+
 /* Progress bar on continue cards */
 .progress, .watch-progress, .card-progress {
   height: 2px;
@@ -1628,6 +1635,30 @@ select { appearance: none; cursor: pointer; }
   flex-wrap: wrap;
   gap: var(--sp-3);
   margin-bottom: var(--sp-4);
+}
+
+.library-group {
+  margin-bottom: var(--sp-7);
+}
+
+.library-group__title {
+  font-size: var(--t-md);
+  font-weight: 800;
+  color: var(--text1);
+  margin-bottom: var(--sp-4);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.library-group__title span {
+  font-size: var(--t-xs);
+  color: var(--text3);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .library-empty {

@@ -1,129 +1,121 @@
 #### **🧑 \[P\] Persona**
 
-You are a **senior vanilla JavaScript developer** with deep expertise in DOM manipulation, partial UI updates, and cross-project feature porting in frameworkless single-page applications. You are specifically skilled at adapting watch-view features — episode navigation systems, grouping/pagination logic, and franchise relation displays — across codebases that share the same tech stack but differ in architecture and naming conventions.
+You are a **senior vanilla JavaScript developer** specializing in localStorage-based data persistence, JSON schema design, and library management UIs in frameworkless single-page applications. You are meticulous about data integrity — you never silently drop user data on import, and you write defensive parsers that handle schema variations gracefully.
 
 ---
 
 #### **🎯 \[T\] Task**
 
-Port **two distinct watch-view features** from the **AniVault project** (`https://github.com/Tester-creat/AniValt`) into the **Ember project** (`https://github.com/Tester-creat/Ember`). These are independent features but both live inside the watch/player view. Implement them in this exact order:
+Implement **three sequential, dependent tasks** in the **Ember project** (`https://github.com/Tester-creat/Ember`). Each task must be completed and verified before the next begins, as each one is a prerequisite for the next.
 
 ---
 
-**Feature 1 — Episode Group Selector (40-episode grouping)**
+**Task 1 — Add missing status values to Ember (prerequisite for Tasks 2 & 3\)**
 
-AniVault groups episodes into chunks of 50 inside `paintEpisodeList()`, rendering a group-selector UI above the episode list so users of long series (e.g. One Piece at 1,160+ episodes) can navigate between ranges (1–50, 51–100, etc.).
+Ember currently supports these library statuses: `Watching`, `Completed`, `Plan to Watch`, `Dropped`, `Paused`. AniVault additionally has: `Queued` and `Untracked`. Add both missing statuses to every location in Ember's codebase where statuses are defined, rendered, or filtered:
 
-Port this feature to Ember with the following **mandatory modification**: the chunk/group size must be **40 episodes** (not 50). So the group labels become: 1–40, 41–80, 81–120, …, and so on dynamically based on total episode count.
-
-Specific requirements:
-
-* The group selector must only appear when total episodes exceed 40; for shorter series it must be completely hidden  
-* The active group must be highlighted/selected visually using Ember's existing active-state CSS pattern  
-* On episode change (next/previous navigation, direct episode click), the active group must automatically update to whichever group the current episode belongs to  
-* The selected group must be persisted in `uiState` (or Ember's equivalent ephemeral state object) so it survives re-renders without resetting to group 1  
-* The episode list must only render the 40 episodes of the currently selected group — not all episodes at once (critical for performance on 1,000+ episode series)
+* The **status picker** dropdown/selector in the watch view and library card UI  
+* The **Library tab** filter buttons (so users can filter by Queued and Untracked)  
+* The **Library tab** status grouping/sorting logic (Queued and Untracked must appear as distinct groups, not lumped into "Other")  
+* The **Stats tab** status distribution breakdown (both new statuses must appear in the chart/counts)  
+* Any **CSS badge or pill styling** for status labels — add appropriately coloured variants for Queued and Untracked that fit Ember's existing glassmorphism design token system  
+* The **Home tab** recommendations logic — if it excludes `Completed` or `Dropped` from "continue watching" rows, apply the same exclusion rules sensibly to `Queued` and `Untracked`
 
 ---
 
-**Feature 2 — Watch Order Panel (bottom of watch view)**
+**Task 2 — Implement AniVault-compatible import in Ember**
 
-AniVault renders a "Watch Order" section at the bottom of the watch view via `renderWatchOrder()`. This panel fetches franchise relations from the **AniList GraphQL API** and displays related titles (Sequel, Prequel, Side Story, Alternative, Spin-off, etc.) in a visually distinct panel below the video player. Each entry is clickable and navigates directly into that title's watch view.
+Ember already has a JSON import feature. Replace or upgrade it to correctly read and merge an **`anivault_v2`\-format** export file:
 
-Port this feature to Ember exactly, including:
+* The `anivault_v2` format is a JSON object keyed by **AniList ID strings**, where each value is a library entry containing at minimum: `status`, `rating`, `episodesWatched`, `totalEpisodes`, `notes`, and title metadata fields  
+* It also contains a `__meta` key at the top level (not an anime entry) holding app-level settings like theme preference — this must be **detected and excluded** from the library entries, then **stored separately** in Ember's localStorage as `ember_anivault_meta` (a passthrough preserve, so round-trip exports don't lose AniVault's settings)  
+* Import behaviour must be **merge, not overwrite**: for each entry in the imported file, if that AniList ID already exists in Ember's library, update it with the imported values; if it does not exist, add it as a new entry. Entries already in Ember's library that are NOT in the imported file must remain untouched  
+* After a successful merge, show a toast notification reporting: how many entries were added, how many were updated, and how many were skipped (already up to date)  
+* Validate the file before processing: confirm it is valid JSON, confirm it has the expected `anivault_v2` shape (object with AniList ID keys), and show a clear user-facing error toast if validation fails — never silently fail or corrupt localStorage  
+* The import trigger (button, file input) must remain in whatever location Ember currently places it — do not redesign the UI layout, only upgrade the underlying logic
 
-* The AniList GraphQL query for `relations { edges { relationType node { id title { romaji } coverImage { medium } } } }`  
-* The relation type labels displayed (Sequel, Prequel, Side Story, Spin-off, Alternative, Summary — map AniList's enum values to human-readable labels)  
-* Sorted display: Prequel first, then Sequel, then Side Story/Spin-off, then Other — matching AniVault's recommended watch order sort  
-* Each entry card shows: cover image, title (romaji), and relation type badge  
-* Clicking an entry loads that anime's watch view (reusing Ember's existing watch-navigation logic — do not create a new routing mechanism)  
-* The panel must render below the iframe player but above the footer — do not break the existing rating/status bar or episode list layout  
-* Show a graceful empty state ("No related titles found") when AniList returns no relations or the fetch fails
+---
+
+**Task 3 — Make Ember's export produce `anivault_v2`\-compatible JSON**
+
+Upgrade Ember's existing export function so the file it produces can be directly imported by AniVault without modification:
+
+* The exported JSON must be a flat object keyed by **AniList ID strings** — matching `anivault_v2` schema exactly  
+* Each entry must include all fields AniVault expects: `status`, `rating`, `episodesWatched`, `totalEpisodes`, `notes`, and any title metadata fields AniVault stores (confirm field names by reading AniVault's `app.js` export function)  
+* If the `__meta` passthrough was stored during a previous import (Task 2), include it in the export so AniVault gets its settings back on re-import  
+* If no `__meta` exists (user never imported from AniVault), generate a minimal `__meta` block: `{ "source": "ember", "exportedAt": "<ISO timestamp>" }` so AniVault's importer doesn't fail on a missing `__meta`  
+* The exported filename must follow the pattern: `anivault-backup-YYYY-MM-DD.json` — identical to AniVault's own export filename convention, making the files interchangeable and immediately recognisable
 
 ---
 
 #### **🗂️ \[C\] Context**
 
-**AniVault (reference/source):**
+**AniVault (reference schema source):**
 
-* Stack: Vanilla JS \+ HTML \+ CSS, \~2,900 lines in `app.js`, fully JS-rendered  
-* Episode grouping implemented in `paintEpisodeList()` — this is a **targeted partial DOM update**, NOT a full re-render via `renderApp()`; it updates only the episode panel container directly  
-* Watch order implemented in `renderWatchOrder()` — also a **targeted update** for a specific container, called from `afterRender()` post hook after the watch view is painted  
-* AniList GraphQL endpoint: `https://graphql.anilist.co`  
-* AniList uses the anime's **AniList ID** (not MAL ID) for all relation lookups  
-* Group size in AniVault: 50 → **must be changed to 40 in Ember**  
-* Episode grouping active group is tracked in `uiState` to survive re-renders  
-* Watch order panel is positioned at the bottom of the watch layout, below the player iframe  
-* The `renderWatchOrder()` function is called with the current anime's AniList ID, fetches async, then injects HTML into a dedicated `#watchOrder` container (or equivalent)  
-* Known CSS fix in AniVault relevant to this: `.watch-sidebar` must have `overflow: visible` (not `overflow: hidden`) to allow `position: sticky` on the group selector — verify and apply this in Ember too
+* localStorage key: `anivault_v2`  
+* Schema: flat JSON object, top-level keys are AniList ID strings plus one reserved key `__meta`  
+* Status values (complete set): `Watching`, `Completed`, `Queued`, `Plan to Watch`, `Paused`, `Dropped`, `Untracked`  
+* Rating: integer 1–10  
+* `__meta` block holds: `theme` and potentially other app-level config — treat as opaque passthrough, never mutate its contents  
+* Export filename convention: `anivault-backup-YYYY-MM-DD.json`
 
 **Ember (target project):**
 
 * Stack: Vanilla JS \+ HTML \+ CSS — no frameworks, no build step  
-* Watch view is rendered into `<div class="content" id="content"></div>` by `app.js`  
-* The video player is an `<iframe>` embedded via one of 4 providers: MegaPlay, Cinetaro, VidPlus, VidNest  
-* Episode list is rendered in the watch sidebar — find the function rendering this (likely `renderWatchView()`, `renderPlayer()`, or similar — confirm by reading `app.js`)  
-* Ember uses **AniList IDs** for all anime (confirmed from provider URL patterns using AniList-based IDs)  
-* Ephemeral UI state is tracked in a state object in `app.js` (likely `uiState` — confirm exact name)  
-* Tab/view switching uses `data-action="tab"` click delegation; watch-view navigation likely uses `data-action="watch"` or `data-id` attributes — confirm and reuse the same pattern for Watch Order card clicks  
-* localStorage key: confirm by reading `app.js` (likely `ember_library` or similar)  
-* Design system: glassmorphism with CSS custom properties — use Ember's own `--glass`, `--accent`, `--border`, `--radius-*`, `--space-*` tokens; do NOT import AniVault's CSS  
-* Do not add any npm packages or external libraries — AniList GraphQL is called via native `fetch()`
+* Current statuses: `Watching`, `Completed`, `Plan to Watch`, `Dropped`, `Paused` — missing `Queued` and `Untracked`  
+* localStorage key: confirm exact name by reading `app.js` before writing any code  
+* Also uses AniList IDs as primary keys — confirmed from streaming provider URL patterns  
+* Rating scale: 1–10 — identical to AniVault, no conversion needed  
+* Import/export UI: already exists somewhere in the app — confirm location (likely in a settings panel, library tab header, or a `?` / menu button) before modifying  
+* Design system: glassmorphism with CSS custom properties (`--glass`, `--accent`, `--border`, `--space-*`, `--radius-*`) — all new CSS for status badges must use these tokens only
 
 **Do not:**
 
-* Use 50 as the group size — it must be exactly **40**  
-* Make `paintEpisodeList()` or the watch order panel trigger a full `renderApp()` re-render — both must be targeted partial DOM updates only  
-* Copy AniVault's CSS class names into Ember wholesale; adapt them to Ember's naming convention  
-* Create any new routing or navigation mechanism — reuse whatever click-delegation and state mutation pattern Ember already uses to navigate to a watch view  
-* Break the existing rating/status bar, episode keyboard shortcuts (`←`/`→`, `M`), or provider-switching logic
+* Overwrite on import — always merge  
+* Silently drop `__meta` — preserve it as a passthrough  
+* Rename or restructure any existing Ember status values — only add the two new ones  
+* Change the import/export button placement or redesign the menu UI  
+* Add any npm dependencies — use native `fetch()`, `JSON.parse()`, `JSON.stringify()`, and the File API only  
+* Produce an export file that only Ember can read — it must be valid `anivault_v2` that AniVault accepts without modification
 
 ---
 
 #### **📋 \[F\] Format**
 
-Deliver the solution in the following structure:
+Deliver in this exact structure:
 
 **1\. Pre-flight Audit**
 
-* Confirm the exact function name(s) in Ember's `app.js` that render the watch view and the episode list  
-* Confirm the exact name of Ember's ephemeral UI state object (e.g. `uiState`, `state`, `appState`)  
-* Confirm how Ember navigates to a watch view (what data attribute / function call handles `"watch"` actions)  
-* Confirm the localStorage key Ember uses  
-* Confirm whether Ember's watch sidebar already has `overflow` set in `styles.css` and whether it needs fixing for sticky group selector
+* Confirm Ember's localStorage key  
+* List every location in `app.js` and `styles.css` where statuses are hardcoded (picker, filters, stats, badges, CSS classes) — this is the complete checklist for Task 1  
+* Confirm where Ember's current import/export UI lives (which tab, which function)  
+* Read AniVault's export function and list every field it writes per entry — this is the field spec for Task 3
 
-**2\. Feature 1 — Episode Grouping (app.js)**
+**2\. Task 1 — Status additions**
 
-* The new/modified episode list rendering function with 40-episode grouping logic  
-* Group selector HTML generation (clearly commented)  
-* Auto-scroll / auto-select group logic when current episode changes  
-* Show a before/after diff for wherever the old episode list was rendered
+* All `app.js` changes: status arrays, picker HTML, filter logic, stats counts, library grouping  
+* All `styles.css` changes: new badge colour variants for `Queued` and `Untracked` only
 
-**3\. Feature 1 — CSS fix (styles.css, if needed)**
+**3\. Task 2 — Import upgrade**
 
-* Only new rules needed for the group selector UI and the `overflow: visible` fix on the watch sidebar
+* Complete replacement for Ember's import handler function  
+* `__meta` detection, extraction, and passthrough storage logic  
+* Merge algorithm (add new, update existing, leave untouched entries alone)  
+* Validation logic and error toasts  
+* Success toast with added/updated/skipped counts
 
-**4\. Feature 2 — Watch Order Panel (app.js)**
+**4\. Task 3 — Export upgrade**
 
-* The complete `renderWatchOrder()` function including:  
-  * AniList GraphQL query (copy the exact query shape from AniVault)  
-  * Relation type sorting logic (Prequel → Sequel → Side Story → Other)  
-  * HTML generation for the panel and each entry card  
-  * Empty state and error state handling  
-  * Click handler wiring for navigating to related titles  
-* Where to call `renderWatchOrder()` in Ember's post-render flow (after watch view is painted)
+* Complete replacement for Ember's export function  
+* Field mapping: Ember internal field → `anivault_v2` field (show a mapping table if any fields differ in name)  
+* `__meta` passthrough inclusion logic  
+* Filename generation: `anivault-backup-YYYY-MM-DD.json`
 
-**5\. Feature 2 — CSS (styles.css)**
+**5\. Verification Checklist**
 
-* Rules for the watch order panel container, relation type badge, entry cards, and hover states — using Ember's CSS custom properties
-
-**6\. Verification Checklist**
-
-* One Piece (1,160+ episodes): group selector appears with correct 40-ep ranges, active group auto-switches correctly  
-* Short series (≤40 episodes): group selector is completely hidden  
-* Episode keyboard shortcuts (`←`/`→`) still work and update the active group  
-* Watch order panel loads and displays correctly for a franchise anime (e.g. Naruto, Attack on Titan)  
-* Watch order panel shows graceful empty state for a standalone film  
-* Clicking a related title in the watch order panel navigates correctly without a page reload  
-* No full `renderApp()` call is triggered by either feature during normal operation
+* Import an AniVault export: all 7 statuses land correctly, `__meta` is preserved, merge counts toast shows correctly  
+* Import the same file twice: second import shows 0 added, N updated or 0 updated (idempotent)  
+* Export from Ember and import into AniVault: AniVault accepts the file without errors, all entries appear correctly, `__meta`/theme is restored  
+* Queued and Untracked entries appear correctly in Library filters, Stats tab, and status picker  
+* No existing Ember entries are lost or corrupted during any import
 
