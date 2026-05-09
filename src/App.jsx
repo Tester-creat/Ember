@@ -11,6 +11,7 @@ import Library from './sections/Library';
 import Watch from './sections/Watch';
 import Seasonal from './sections/Seasonal';
 import Search from './sections/Search';
+import Stats from './sections/Stats';
 import { anikotoFetch } from './utils/api';
 import { getCoverSrc, getTitle } from './utils/animeUtils';
 import './index.css';
@@ -44,7 +45,7 @@ function AppContent() {
       case 'browse': return <Browse onOpenDetail={setSelectedAnime} />;
       case 'seasonal': return <Seasonal onOpenDetail={setSelectedAnime} />;
       case 'library': return <Library onOpenDetail={setSelectedAnime} />;
-      case 'stats': return <div className="section page-inner"><h2 className="section__title">Stats (Coming Soon)</h2></div>;
+      case 'stats': return <Stats />;
       case 'search': return <Search onOpenDetail={setSelectedAnime} />;
       default: return <Home onOpenDetail={setSelectedAnime} />;
     }
@@ -61,7 +62,8 @@ function AppContent() {
         className="main"
         id="app"
         style={{
-          paddingTop: currentTab === 'home' && !currentWatchId ? '0' : 'calc(var(--nav-height) + 16px)',
+          paddingTop: currentTab === 'home' && !currentWatchId ? '0' : 'calc(var(--nav-height) + var(--sp-6))',
+          paddingBottom: 'calc(var(--mob-nav-h) + var(--sp-6))',
         }}
       >
         {renderActiveSection()}
