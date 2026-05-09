@@ -1126,6 +1126,7 @@ button:disabled {
 .marquee-track {
   display: flex;
   gap: var(--sp-3);
+  padding-right: var(--sp-3);
   width: max-content;
   animation: marqueeLeft var(--marquee-dur, 40s) linear infinite;
   will-change: transform;

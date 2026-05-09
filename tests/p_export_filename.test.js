@@ -40,7 +40,8 @@ describe('Property P18: Export filename format', () => {
     () => {
       fc.assert(
         fc.property(
-          fc.date({ min: new Date('2000-01-01'), max: new Date('2099-12-31') }),
+          fc.date({ min: new Date('2000-01-01'), max: new Date('2099-12-31') })
+            .filter((d) => !Number.isNaN(d.getTime())),
           (date) => {
             vi.useFakeTimers();
             vi.setSystemTime(date);

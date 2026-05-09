@@ -38,61 +38,211 @@ const dubAvailable = {};
 const anikotoSeriesCache = new Map();
 const anikotoEpisodeCache = new Map();
 
-// Helpers: normalise a title string for fuzzy matching
+/** Max pages of /recent-anime to scan (catalog-sized; ~100 titles/page). */
+const ANIKOTO_RECENT_PER_PAGE = 100;
+const ANIKOTO_PAGE_SCAN_CAP = 220;
+const FUZZY_TITLE_MATCH_MIN = 72;
+
+const streamLog = {
+  buf: [],
+  max: 48,
+  log(level, code, msg, meta) {
+    const row = { t: Date.now(), level, code, msg, meta: meta || null };
+    this.buf.unshift(row);
+    if (this.buf.length > this.max) this.buf.length = this.max;
+    const fn = level === "error" ? console.error : level === "warn" ? console.warn : console.info;
+    fn(`[ember-stream:${code}]`, msg, meta || "");
+  },
+  snapshot() { return [...this.buf]; }
+};
+if (typeof window !== "undefined") window.__emberStreamLog = () => streamLog.snapshot();
+
 function _normTitle(s) {
   return String(s || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
 }
 
-// Task 1 — resolve Anikoto series ID from AniList ID + romaji title
-async function fetchAnikotoSeries(anilistId, title) {
+function normalizeTitleCtx(titleOrEntry) {
+  if (titleOrEntry && typeof titleOrEntry === "object" && !Array.isArray(titleOrEntry)) {
+    return titleOrEntry;
+  }
+  const s = titleOrEntry == null ? "" : String(titleOrEntry);
+  return { title: s, titleEnglish: s };
+}
+
+function collectTitleNeedles(ctx) {
+  const needles = new Set();
+  const add = (raw) => {
+    const n = _normTitle(raw);
+    if (n.length >= 2) needles.add(n);
+  };
+  if (!ctx) return [];
+  if (typeof ctx.title === "string") add(ctx.title);
+  if (typeof ctx.titleEnglish === "string") add(ctx.titleEnglish);
+  if (ctx.title && typeof ctx.title === "object") {
+    add(ctx.title.romaji);
+    add(ctx.title.english);
+    add(ctx.title.native);
+  }
+  const aid = String(ctx.anilistId || ctx.id || "");
+  if (aid) {
+    const c = anilistCache[aid];
+    if (c) {
+      add(getTitle(c));
+      add(c.titleEnglish);
+      if (c.title?.romaji) add(c.title.romaji);
+      if (c.title?.english) add(c.title.english);
+      if (c.title?.native) add(c.title.native);
+      if (Array.isArray(c.synonyms)) c.synonyms.forEach(add);
+    }
+  }
+  return [...needles];
+}
+
+function scoreAnikotoTitleMatch(item, needles) {
+  const hay = _normTitle(
+    [item.title, item.alternative, item.native, item.titles || ""].filter(Boolean).join(" ")
+  );
+  let best = 0;
+  for (const n of needles) {
+    if (n.length < 4) continue;
+    if (hay === n) return 100;
+    if (hay.includes(n)) best = Math.max(best, 85);
+    else {
+      const nt = _normTitle(item.title || "");
+      const na = _normTitle(item.alternative || "");
+      if (nt.includes(n) || na.includes(n)) best = Math.max(best, 72);
+    }
+  }
+  return best;
+}
+
+/**
+ * /recent-anime is the full Anikoto catalog sorted by recency — not "new only".
+ * We previously scanned only 20×50 titles (~1k), so older/low-activity shows were often missing.
+ */
+async function scanAnikotoCatalogForAnilistId(anilistId, titleCtx) {
+  const target = String(anilistId);
+  const needles = collectTitleNeedles(normalizeTitleCtx(titleCtx));
+  let bestId = null;
+  let bestScore = 0;
+
+  const ingest = (list) => {
+    for (const item of list) {
+      const aId = String(item.ani_id);
+      if (aId && aId !== "0") anikotoIdCache[aId] = item.id;
+      if (aId === target) return item.id;
+      const sc = scoreAnikotoTitleMatch(item, needles);
+      if (sc > bestScore) {
+        bestScore = sc;
+        bestId = item.id;
+      }
+    }
+    return null;
+  };
+
+  let first;
+  try {
+    const res = await anikotoFetch(`/recent-anime?page=1&per_page=${ANIKOTO_RECENT_PER_PAGE}`);
+    first = await res.json();
+  } catch (e) {
+    streamLog.log("error", "anikoto_catalog", "page 1 fetch failed", { err: String(e) });
+    return null;
+  }
+  if (!first?.ok || !Array.isArray(first.data)) {
+    streamLog.log("warn", "anikoto_catalog", "invalid first page", {});
+    return null;
+  }
+
+  const immediate = ingest(first.data);
+  if (immediate) return immediate;
+
+  const totalPages = Math.min(
+    Number(first.pagination?.total_pages) || 1,
+    ANIKOTO_PAGE_SCAN_CAP
+  );
+
+  const CONC = 8;
+  for (let start = 2; start <= totalPages; start += CONC) {
+    const pages = [];
+    for (let p = start; p < start + CONC && p <= totalPages; p++) pages.push(p);
+    let batch;
+    try {
+      batch = await Promise.all(
+        pages.map(async (page) => {
+          const r = await anikotoFetch(`/recent-anime?page=${page}&per_page=${ANIKOTO_RECENT_PER_PAGE}`);
+          return r.json();
+        })
+      );
+    } catch (e) {
+      streamLog.log("warn", "anikoto_catalog", "batch failed", { start, err: String(e) });
+      continue;
+    }
+    for (const data of batch) {
+      if (!data?.ok || !Array.isArray(data.data)) continue;
+      const found = ingest(data.data);
+      if (found) {
+        streamLog.log("info", "anikoto_catalog", "exact ani_id match", { page: "batch", anilistId: target });
+        return found;
+      }
+    }
+  }
+
+  const longNeedle = needles.some(n => n.length >= 4);
+  if (longNeedle && bestId && bestScore >= FUZZY_TITLE_MATCH_MIN) {
+    streamLog.log("info", "anikoto_fuzzy", "title match", { bestScore, internalId: bestId, target });
+    return bestId;
+  }
+
+  streamLog.log("warn", "anikoto_miss", "not in catalog scan", { target, totalPages, bestScore });
+  return null;
+}
+
+async function fetchAnikotoSeries(anilistId, titleOrEntry) {
   const key = Number(anilistId);
+  if (!Number.isFinite(key)) return null;
   if (anikotoSeriesCache.has(key)) return anikotoSeriesCache.get(key);
-  // Check anikotoIdCache first (populated by findAnikotoId / preloadEpisodeUrls)
+
   const fastId = anikotoIdCache[String(anilistId)];
   if (fastId) {
     anikotoSeriesCache.set(key, fastId);
     return fastId;
   }
-  // Fast path: try AniList ID directly as Anikoto series ID
+
   try {
     const directRes = await anikotoFetch(`/series/${key}`);
     const directData = await directRes.json();
     if (directData.ok && directData.data?.episodes?.length > 0) {
       anikotoSeriesCache.set(key, key);
+      anikotoIdCache[String(anilistId)] = key;
       return key;
     }
-  } catch {} // API rejected the direct ID — fall through to page scan
-  const needle = _normTitle(typeof title === "object" ? (title?.romaji || title?.english) : title);
-  for (let page = 1; page <= 20; page++) {
-    try {
-      const res = await anikotoFetch(`/recent-anime?page=${page}&per_page=50`);
-      const data = await res.json();
-      if (!data.ok || !data.data) break;
-      for (const item of data.data) {
-        // Build the anilistId → anikotoId side-cache while we scan
-        const aId = String(item.ani_id);
-        if (aId && aId !== "0" && !anikotoIdCache[aId]) anikotoIdCache[aId] = item.id;
-        // Check by AniList ID first (exact)
-        if (aId === String(anilistId)) {
-          anikotoSeriesCache.set(key, item.id);
-          return item.id;
-        }
-        // Fuzzy title match as fallback
-        const haystack = _normTitle(item.title) + " " + _normTitle(item.alternative);
-        if (needle && (haystack.includes(needle) || needle.includes(_normTitle(item.title)))) {
-          anikotoSeriesCache.set(key, item.id);
-          return item.id;
-        }
-      }
-      if (data.data.length < 50) break;
-    } catch { break; }
+  } catch {}
+
+  const titleCtx = normalizeTitleCtx(titleOrEntry);
+  const resolved = await scanAnikotoCatalogForAnilistId(anilistId, titleCtx);
+  if (resolved) {
+    anikotoSeriesCache.set(key, resolved);
+    anikotoIdCache[String(anilistId)] = resolved;
+  } else {
+    streamLog.log("warn", "megaplay_series", "unresolved series", { anilistId: key });
   }
-  anikotoSeriesCache.set(key, null); // confirmed miss — don't re-request
-  console.warn(`[MegaPlay] fetchAnikotoSeries: no series found for anilistId=${anilistId} needle=${needle}`);
+  return resolved;
+}
+
+function pickAnikotoEpisode(episodes, epNum) {
+  if (!episodes?.length) return null;
+  const n = Number(epNum);
+  let ep = episodes.find(e => Number(e.number) === n);
+  if (ep) return ep;
+  ep = episodes.find(e => String(e.number) === String(epNum));
+  if (ep) return ep;
+  const sorted = [...episodes].sort((a, b) => Number(a.number) - Number(b.number));
+  if (n >= 1 && n <= sorted.length && Number(sorted[n - 1]?.number) === n) {
+    return sorted[n - 1];
+  }
   return null;
 }
 
-// Task 2 — resolve episode_embed_id from Anikoto series
 async function fetchAnikotoEpisodeEmbedId(anikotoSeriesId, epNum, lang) {
   if (!anikotoSeriesId) return null;
   let episodes = anikotoEpisodeCache.get(anikotoSeriesId);
@@ -104,49 +254,52 @@ async function fetchAnikotoEpisodeEmbedId(anikotoSeriesId, epNum, lang) {
       episodes = data.data.episodes;
       anikotoEpisodeCache.set(anikotoSeriesId, episodes);
     } catch (e) {
-      console.error("[MegaPlay] fetchAnikotoEpisodeEmbedId: failed to fetch series", e);
+      streamLog.log("error", "anikoto_series", "fetch series failed", { anikotoSeriesId, err: String(e) });
       return null;
     }
   }
-  const ep = episodes.find(e => Number(e.number) === Number(epNum));
+  const ep = pickAnikotoEpisode(episodes, epNum);
   if (!ep) {
-    console.warn(`[MegaPlay] fetchAnikotoEpisodeEmbedId: episode ${epNum} not found in series ${anikotoSeriesId}`);
+    streamLog.log("warn", "anikoto_episode", "episode not in list", {
+      anikotoSeriesId, epNum, listed: episodes.length
+    });
     return null;
   }
-  // embed_url.sub / embed_url.dub are the full megaplay URLs
   const url = (lang === "dub" ? ep.embed_url?.dub : ep.embed_url?.sub) || ep.embed_url?.sub || null;
+  if (!url) {
+    streamLog.log("warn", "anikoto_embed", "empty embed_url", { anikotoSeriesId, epNum, lang });
+  }
   return url || null;
 }
 
 const STREAM_PROVIDERS = [
   { name: "MegaPlay", active: true, idType: "anikoto",
     async buildUrl(entry, ep, lang) {
-      // Fast path: check episodeEmbedCache first (populated by preloadEpisodeUrls)
       const cacheKey = `${entry.anilistId || entry.id}-${ep}-${lang}`;
       const cached = episodeEmbedCache[cacheKey];
       if (cached) return cached;
       try {
-        const seriesId = await fetchAnikotoSeries(entry.anilistId || entry.id, entry.title);
+        const seriesId = await fetchAnikotoSeries(entry.anilistId || entry.id, entry);
         if (!seriesId) return null;
         const url = await fetchAnikotoEpisodeEmbedId(seriesId, ep, lang);
         if (url) episodeEmbedCache[cacheKey] = url;
         return url || null;
       } catch (e) {
-        console.error("[MegaPlay] buildUrl error:", e);
+        streamLog.log("error", "megaplay_build", String(e?.message || e), { ep });
         return null;
       }
     },
-    notes: "Primary — Anikoto /series/{id} native embed (s-2 path). Highest reliability." },
+    notes: "Primary — Anikoto catalog + /series/{internalId} embeds." },
   { name: "VidNest", active: true, idType: "anilist",
     buildUrl: (entry, ep, lang) => `https://vidnest.fun/anime/${entry.anilistId || entry.id}/${ep}/${lang}`,
-    notes: "Direct AniList ID embed. Reliable synchronous fallback." },
+    notes: "Direct AniList ID embed." },
   { name: "VidSrc", active: true, idType: "anilist",
-    buildUrl: (entry, ep, lang) => `https://vidsrc.cc/v2/embed/anime/${entry.anilistId || entry.id}/${ep}${lang === 'dub' ? '/dub' : ''}`,
-    notes: "VidSrc anime embed. Direct AniList ID embed." }
+    buildUrl: (entry, ep, lang) => `https://vidsrc.cc/v2/embed/anime/${entry.anilistId || entry.id}/${ep}${lang === "dub" ? "/dub" : ""}`,
+    notes: "VidSrc anime embed." }
 ];
 let currentProvider = 0;
 let currentLanguage = "sub";
-let watchPlayerError = null; // { provider, message, detail } when provider fails
+let watchPlayerError = null;
 
 /* ══ ANIKOTO API ═══════════════════════════════════════════════ */
 function anikotoFetch(endpoint) {
@@ -205,7 +358,7 @@ function normalizeAnime(m) {
 
 async function initAnikotoCache() {
   try {
-    const res = await anikotoFetch('/recent-anime?page=1&per_page=50');
+    const res = await anikotoFetch(`/recent-anime?page=1&per_page=${ANIKOTO_RECENT_PER_PAGE}`);
     const data = await res.json();
     if (data.ok && data.data) {
       data.data.forEach(anime => {
@@ -219,35 +372,15 @@ async function initAnikotoCache() {
 }
 
 async function findAnikotoId(anilistId) {
-  const cached = anikotoIdCache[String(anilistId)];
-  if (cached) return cached;
-  // Fast path: try AniList ID directly as Anikoto series ID
-  try {
-    const directRes = await anikotoFetch(`/series/${Number(anilistId)}`);
-    const directData = await directRes.json();
-    if (directData.ok && directData.data?.episodes?.length > 0) {
-      anikotoIdCache[String(anilistId)] = Number(anilistId);
-      return Number(anilistId);
-    }
-  } catch {}
-  for (let page = 1; page <= 20; page++) {
-    try {
-      const res = await anikotoFetch(`/recent-anime?page=${page}&per_page=50`);
-      const data = await res.json();
-      if (!data.ok || !data.data) break;
-      for (const anime of data.data) {
-        const aId = String(anime.ani_id);
-        if (aId && aId !== "0") {
-          anikotoIdCache[aId] = anime.id;
-        }
-        if (aId === String(anilistId)) {
-          return anime.id;
-        }
-      }
-      if (data.data.length < 50) break;
-    } catch { break; }
-  }
-  return null;
+  const s = String(anilistId);
+  if (anikotoIdCache[s]) return anikotoIdCache[s];
+  const ctx =
+    anilistCache[s] ||
+    browseData.results.find(r => String(r.id) === s) ||
+    searchResults.find(r => String(r.id) === s) ||
+    seasonalData.results.find(r => String(r.id) === s) ||
+    {};
+  return fetchAnikotoSeries(Number(anilistId), ctx);
 }
 
 async function preloadEpisodeUrls(anilistId) {
@@ -711,35 +844,45 @@ function renderHeroSlide() {
     }
   }
 
-  // Slide content transition: fade-out old, then fade-in new
-  heroBody.style.opacity = "0";
-  heroBody.style.transform = "translateY(8px)";
-  heroBody.style.transition = "opacity 0.3s ease, transform 0.3s ease";
+  const oldSlide = heroBody.querySelector('.hero__slide');
+  if (oldSlide) {
+    oldSlide.style.position = "absolute";
+    oldSlide.style.top = "0";
+    oldSlide.style.left = "0";
+    oldSlide.style.right = "0";
+    oldSlide.style.opacity = "0";
+    oldSlide.style.pointerEvents = "none";
+    oldSlide.style.transition = "opacity 0.6s ease";
+    setTimeout(() => oldSlide.remove(), 600);
+  }
 
-  setTimeout(() => {
-    heroBody.innerHTML = `
-      <div class="hero__accent fade-in-left">${isWatching ? "&#9654; Continue Watching" : "Trending Now"}</div>
-      ${format ? `<div class="hero__meta-format fade-in-left">${escapeHtml(format)}</div>` : ""}
-      <h1 class="hero__title fade-in-left">${escapeHtml(title)}</h1>
-      <div class="hero__meta fade-in-left">${metaHtml}</div>
-      ${genreChips ? `<div class="hero__genres fade-in-left">${genreChips}</div>` : ""}
-      ${description ? `<p class="hero__subtitle fade-in-left">${escapeHtml(description)}</p>` : ""}
-      <div class="hero__actions fade-in-left">
-        <button class="btn btn--primary" data-action="${isWatching ? "open-watch" : "open-detail"}" data-id="${anime.id}">
-          ${isWatching ? (nextEp ? `&#9654; Resume ${nextEp}` : "&#9654; Resume") : "View Details"}
-        </button>
-        <button class="btn btn--glass" data-action="open-status-picker" data-id="${anime.id}">+ My List</button>
-      </div>
-    `;
+  const newSlide = document.createElement("div");
+  newSlide.className = "hero__slide";
+  newSlide.style.display = "flex";
+  newSlide.style.flexDirection = "column";
+  newSlide.style.gap = "var(--sp-4)";
+  
+  newSlide.innerHTML = `
+    <div class="hero__accent fade-in-left">${isWatching ? "&#9654; Continue Watching" : "Trending Now"}</div>
+    ${format ? `<div class="hero__meta-format fade-in-left">${escapeHtml(format)}</div>` : ""}
+    <h1 class="hero__title fade-in-left">${escapeHtml(title)}</h1>
+    <div class="hero__meta fade-in-left">${metaHtml}</div>
+    ${genreChips ? `<div class="hero__genres fade-in-left">${genreChips}</div>` : ""}
+    ${description ? `<p class="hero__subtitle fade-in-left">${escapeHtml(description)}</p>` : ""}
+    <div class="hero__actions fade-in-left">
+      <button class="btn btn--primary" data-action="${isWatching ? "open-watch" : "open-detail"}" data-id="${anime.id}">
+        ${isWatching ? (nextEp ? `&#9654; Resume ${nextEp}` : "&#9654; Resume") : "View Details"}
+      </button>
+      <button class="btn btn--glass" data-action="open-status-picker" data-id="${anime.id}">+ My List</button>
+    </div>
+  `;
 
-    heroBody.style.opacity = "1";
-    heroBody.style.transform = "translateY(0)";
+  heroBody.appendChild(newSlide);
 
-    // Stagger fade-in animations
-    heroBody.querySelectorAll(".fade-in-left").forEach((el, i) => {
-      el.style.animationDelay = `${i * 0.07}s`;
-    });
-  }, 300);
+  // Stagger fade-in animations
+  newSlide.querySelectorAll(".fade-in-left").forEach((el, i) => {
+    el.style.animationDelay = `${i * 0.07}s`;
+  });
 
   // Update indicator dots
   const indicatorsEl = document.getElementById("heroIndicators");
@@ -763,7 +906,13 @@ function renderHeroSlide() {
 function startHeroRotation() {
   stopHeroRotation();
   if (heroItems.length <= 1) return;
+  if (currentTab !== "home" || currentWatchId !== null) return;
+  
   heroTimer = setInterval(() => {
+    if (currentTab !== "home" || currentWatchId !== null) {
+      stopHeroRotation();
+      return;
+    }
     heroIndex = (heroIndex + 1) % heroItems.length;
     renderHeroSlide();
   }, HERO_INTERVAL);
@@ -1189,19 +1338,20 @@ function formatSortRank(entry) {
 
 function sortCompletedEntries(entries) {
   const parsed = entries.map(e => {
-    const info = parseFranchise(e.titleEnglish || e.title || "");
-    return { entry: e, ...info };
+    const t = getTitle(e) || "";
+    const info = parseFranchise(t);
+    return { entry: e, title: t, ...info };
   });
 
   parsed.sort((a, b) => {
-    const fa = a.franchise || "";
-    const fb = b.franchise || "";
+    const fa = a.franchise || a.title;
+    const fb = b.franchise || b.title;
     const cmp = fa.localeCompare(fb);
     if (cmp !== 0) return cmp;
 
     const ya = a.entry.year || 0;
     const yb = b.entry.year || 0;
-    if (ya !== yb) return ya - yb;
+    if (ya !== yb && ya > 0 && yb > 0) return ya - yb;
 
     if (a.season !== b.season) return (a.season || 0) - (b.season || 0);
 
@@ -1212,11 +1362,6 @@ function sortCompletedEntries(entries) {
     const ca = a.entry.completedAt || 0;
     const cb = b.entry.completedAt || 0;
     if (ca !== cb) return ca - cb;
-
-    const ta = a.entry.titleEnglish || a.entry.title || "";
-    const tb = b.entry.titleEnglish || b.entry.title || "";
-    const tcmp = String(ta).localeCompare(String(tb));
-    if (tcmp !== 0) return tcmp;
 
     return String(a.entry.id).localeCompare(String(b.entry.id));
   });
@@ -2126,23 +2271,45 @@ async function buildStreamUrl(entry, ep, lang, idx) {
   return result || "";
 }
 
-// Task 4 — setupWatchPlayer with async resolution + is-resolving state + error postMessage
+/**
+ * Try providers in order from startIndex until one returns a non-empty URL.
+ * MegaPlay failures no longer block VidNest/VidSrc for the same play session.
+ */
+async function resolveStreamUrlCascade(entry, ep, lang, startIndex) {
+  const attempts = [];
+  const t0 = Math.max(0, Math.min(Number(startIndex) || 0, STREAM_PROVIDERS.length - 1));
+  for (let i = t0; i < STREAM_PROVIDERS.length; i++) {
+    const p = STREAM_PROVIDERS[i];
+    if (!p?.active) continue;
+    const tStart = performance.now();
+    let url = "";
+    try {
+      url = await buildStreamUrl(entry, ep, lang, i);
+    } catch (e) {
+      const ms = Math.round(performance.now() - tStart);
+      attempts.push({ provider: p.name, index: i, ok: false, ms, error: String(e?.message || e) });
+      streamLog.log("warn", "provider_resolve", String(e?.message || e), { provider: p.name, i });
+      continue;
+    }
+    const ms = Math.round(performance.now() - tStart);
+    attempts.push({ provider: p.name, index: i, ok: !!url, ms });
+    streamLog.log("info", "provider_try", url ? "ok" : "empty", { provider: p.name, ms });
+    if (url) return { url, providerIndex: i, attempts };
+  }
+  return { url: "", providerIndex: t0, attempts };
+}
+
 function setupWatchPlayer() {
-  if (watchPlayerError) return; // Don't retry automatically while error is showing
+  if (watchPlayerError) return;
   const entry = getEntry(currentWatchId);
   if (!entry) return;
   const iframe = document.querySelector("[data-watch-iframe]");
   if (!iframe) return;
 
   const playerWrap = iframe.closest(".watch-player");
-
-  // Mark as resolving while we fetch the URL
   if (playerWrap) playerWrap.classList.add("is-resolving");
 
-  const providerIndexAtStart = currentProvider;
-  const provider = STREAM_PROVIDERS[providerIndexAtStart];
-  if (!provider) return;
-
+  const watchEntryId = entry.id;
   let streamFallbackTimer = null;
 
   function cleanup() {
@@ -2150,68 +2317,74 @@ function setupWatchPlayer() {
     window.removeEventListener("message", onMessage);
   }
 
-  function advanceProvider(reason) {
+  function tryNextFromEmbedFailure(reason) {
     cleanup();
-    if (currentProvider !== providerIndexAtStart) return; // user already switched
-    const next = providerIndexAtStart + 1;
+    if (getEntry(currentWatchId)?.id !== watchEntryId) return;
+    const prev = STREAM_PROVIDERS[currentProvider];
+    const next = currentProvider + 1;
     if (next < STREAM_PROVIDERS.length) {
       currentProvider = next;
-      showToast(`${provider.name} ${reason} — trying ${STREAM_PROVIDERS[next].name}`, "error");
+      showToast(`${prev.name} ${reason} — trying ${STREAM_PROVIDERS[next].name}`, "error");
       renderContent();
     } else {
-      currentProvider = 0;
-      showToast("All providers tried. Switch manually.", "error");
+      watchPlayerError = {
+        provider: prev?.name || "—",
+        message: "Playback failed on all providers",
+        detail: reason || "Try another episode or switch provider manually (W).",
+      };
+      renderContent();
     }
   }
 
   function onMessage(evt) {
     const payload = evt.data;
     if (!payload || typeof payload !== "object") return;
-    // Task 5 — error event: skip immediately
     if (payload.event === "error" || payload.type === "error") {
-      advanceProvider("reported an error");
+      tryNextFromEmbedFailure("reported an error");
       return;
     }
-    // Success signals — cancel the fallback timer
     if (payload.event === "time" || payload.type === "watching-log" || payload.channel === "megacloud") {
       cleanup();
     }
   }
 
-  window.addEventListener("message", onMessage);
-
-  // Resolve URL (async for MegaPlay, instant for others)
-  buildStreamUrl(entry, currentEpisode, currentLanguage, providerIndexAtStart).then(url => {
+  resolveStreamUrlCascade(entry, currentEpisode, currentLanguage, currentProvider).then(({ url, providerIndex, attempts }) => {
     if (playerWrap) playerWrap.classList.remove("is-resolving");
-    if (currentProvider !== providerIndexAtStart) return; // user switched while resolving
+    if (getEntry(currentWatchId)?.id !== watchEntryId) return;
 
     if (!url) {
-      cleanup();
-      if (providerIndexAtStart === 0) {
-        // MegaPlay failed — show persistent error instead of silent fallback
-        if (playerWrap) playerWrap.classList.remove("is-resolving");
-        watchPlayerError = {
-          provider: provider.name,
-          message: "Stream not available for this episode",
-          detail: "Could not find a playable source. The series may not be available on this provider."
-        };
-        renderContent(); // Re-render to show the error overlay
-        return;
-      }
-      // Other providers: auto-advance
-      advanceProvider("has no stream for this episode");
+      streamLog.log("error", "cascade_fail", "no url", { attempts });
+      watchPlayerError = {
+        provider: "All providers",
+        message: "No playable stream found",
+        detail: attempts.length
+          ? attempts.map(a => `${a.provider}: ${a.ok ? "ok" : (a.error || "empty")} (${a.ms}ms)`).join(" · ")
+          : "No sources returned a URL.",
+      };
+      renderContent();
       return;
     }
 
-    iframe.src = url;
+    currentProvider = providerIndex;
+    if (providerIndex > 0) {
+      showToast(`Auto: ${STREAM_PROVIDERS[providerIndex].name}`, "success");
+    }
 
-    // 30-second fallback timeout for slow/hung players
+    window.addEventListener("message", onMessage);
+    iframe.src = url;
     streamFallbackTimer = setTimeout(() => {
-      advanceProvider("timed out");
+      tryNextFromEmbedFailure("timed out");
     }, 30000);
-  }).catch(() => {
+  }).catch((e) => {
     if (playerWrap) playerWrap.classList.remove("is-resolving");
-    advanceProvider("failed to resolve");
+    streamLog.log("error", "cascade_throw", String(e?.message || e), {});
+    if (getEntry(currentWatchId)?.id !== watchEntryId) return;
+    watchPlayerError = {
+      provider: "—",
+      message: "Stream resolution failed",
+      detail: String(e?.message || e),
+    };
+    renderContent();
   });
 }
 
