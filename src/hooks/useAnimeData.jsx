@@ -1,11 +1,19 @@
-
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+/* eslint-disable react-refresh/only-export-components -- context + hook pair */
+import { createContext, useContext, useState, useCallback } from 'react';
 
 
 const AnimeContext = createContext();
 
+function readStoredUserData() {
+  try {
+    return JSON.parse(localStorage.getItem('ember_data')) || {};
+  } catch {
+    return {};
+  }
+}
+
 export function AnimeProvider({ children }) {
-  const [userData, setUserData] = useState({});
+  const [userData, setUserData] = useState(readStoredUserData);
   const [anilistCache, setAnilistCache] = useState({});
   const [currentTab, setCurrentTab] = useState("home");
   const [libraryFilter, setLibraryFilter] = useState("all");
@@ -23,16 +31,6 @@ export function AnimeProvider({ children }) {
   const [currentProvider, setCurrentProvider] = useState(0);
   const [currentLanguage, setCurrentLanguage] = useState("sub");
   const [watchPlayerError, setWatchPlayerError] = useState(null);
-
-  // Load from LocalStorage
-  useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem("ember_data")) || {};
-      setUserData(saved);
-    } catch (e) {
-      console.error("Failed to load user data", e);
-    }
-  }, []);
 
   // Save to LocalStorage
   const saveData = useCallback((newData) => {

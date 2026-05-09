@@ -1,18 +1,20 @@
 
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo, memo } from 'react';
 import { getTitle, getCoverSrc, getStatusLabel } from '../utils/animeUtils';
+import { MARQUEE_MAX_ITEMS } from '../utils/renderBudgets';
 
-export function AnimeCard({ anime, entry, onOpenDetail, onOpenStatusPicker }) {
-  const title = getTitle(anime || entry);
-  const cover = getCoverSrc(anime || entry);
-  const score = (anime || entry).averageScore;
+export const AnimeCard = memo(function AnimeCard({ anime, entry, onOpenDetail }) {
+  const data = anime || entry;
+  const title = getTitle(data);
+  const cover = getCoverSrc(data);
+  const score = data?.averageScore;
   const status = entry?.status;
 
   return (
-    <div className="anime-card" onClick={() => onOpenDetail(anime || entry)}>
+    <div className="anime-card" onClick={() => onOpenDetail(data)}>
       <div className="anime-card__media">
         {cover ? (
-          <img src={cover} alt={title} loading="lazy" className="anime-card__img" />
+          <img src={cover} alt="" loading="lazy" decoding="async" className="anime-card__img" />
         ) : (
           <div className="anime-card__ph">{title.charAt(0)}</div>
         )}
@@ -24,20 +26,66 @@ export function AnimeCard({ anime, entry, onOpenDetail, onOpenStatusPicker }) {
       <div className="anime-card__body">
         <div className="anime-card__title">{title}</div>
         <div className="anime-card__meta">
-          {(anime || entry).year || ''} · {(anime || entry).format || ''}
+          {data?.year || ''} · {data?.format || ''}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+function MarqueeTrack({ cappedItems, reverse, onOpenDetail, trackRef }) {
+  return (
+    <div className="media-row">
+      <div className="media-row__viewport marquee-container">
+        <div
+          ref={trackRef}
+          className={`media-row__track marquee-track ${reverse ? 'marquee-track--reverse' : ''}`}
+        >
+          {cappedItems.map((item, i) => (
+            <AnimeCard
+              key={`m-a-${String(item?.id ?? item?.anilistId ?? i)}`}
+              anime={item}
+              onOpenDetail={onOpenDetail}
+            />
+          ))}
+          {cappedItems.map((item, i) => (
+            <AnimeCard
+              key={`m-b-${String(item?.id ?? item?.anilistId ?? i)}`}
+              anime={item}
+              onOpenDetail={onOpenDetail}
+            />
+          ))}
         </div>
       </div>
     </div>
   );
 }
 
-export function MarqueeRow({ title, items, reverse = false, onOpenDetail }) {
+export const MarqueeRow = memo(function MarqueeRow({
+  title,
+  items,
+  reverse = false,
+  onOpenDetail,
+  maxItems = MARQUEE_MAX_ITEMS,
+  embedded = false,
+}) {
   const trackRef = useRef(null);
+  const cappedItems = useMemo(() => {
+    const arr = items ?? [];
+    if (arr.length === 0) return [];
+    return arr.length > maxItems ? arr.slice(0, maxItems) : arr;
+  }, [items, maxItems]);
+
+  const layoutKey = useMemo(
+    () => cappedItems.map((i) => String(i?.id ?? i?.anilistId ?? '')).join('|'),
+    [cappedItems]
+  );
 
   useEffect(() => {
-    if (!trackRef.current || items.length === 0) return;
-    
+    if (!trackRef.current || cappedItems.length === 0) return;
+
     const track = trackRef.current;
+
     const updateMarquee = () => {
       const childCount = track.children.length / 2;
       if (childCount === 0) return;
@@ -50,42 +98,60 @@ export function MarqueeRow({ title, items, reverse = false, onOpenDetail }) {
       const speed = 60;
       const dur = Math.max(copyWidthPx / speed, 15);
 
-      track.style.setProperty("--marquee-dur", `${dur}s`);
-      track.style.setProperty("--marquee-translate", `-${copyWidthPx}px`);
+      track.style.setProperty('--marquee-dur', `${dur}s`);
+      track.style.setProperty('--marquee-translate', `-${copyWidthPx}px`);
     };
 
-    requestAnimationFrame(() => requestAnimationFrame(updateMarquee));
-    
+    let raf = 0;
+    const scheduleMeasure = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(updateMarquee);
+    };
+    scheduleMeasure();
+
+    const ro = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(() => {
+          scheduleMeasure();
+        })
+      : null;
+    ro?.observe(track);
+
     let resizeTimer;
-    const throttledResize = () => {
+    const onResize = () => {
       clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(updateMarquee, 150);
+      resizeTimer = setTimeout(scheduleMeasure, 150);
     };
 
-    window.addEventListener('resize', throttledResize);
+    window.addEventListener('resize', onResize, { passive: true });
     return () => {
-      window.removeEventListener('resize', throttledResize);
+      cancelAnimationFrame(raf);
+      ro?.disconnect();
+      window.removeEventListener('resize', onResize);
       clearTimeout(resizeTimer);
     };
-  }, [items]);
+  }, [layoutKey, reverse, cappedItems.length]);
 
+  if (cappedItems.length === 0) return null;
+
+  const track = (
+    <MarqueeTrack
+      cappedItems={cappedItems}
+      reverse={reverse}
+      onOpenDetail={onOpenDetail}
+      trackRef={trackRef}
+    />
+  );
+
+  if (embedded) return track;
 
   return (
     <section className="section">
-      <div className="section__head">
-        <div className="section__title">{title}</div>
-      </div>
-      <div className="media-row">
-        <div className="media-row__viewport marquee-container">
-          <div 
-            ref={trackRef}
-            className={`media-row__track marquee-track ${reverse ? 'marquee-track--reverse' : ''}`}
-          >
-            {items.map((item, i) => <AnimeCard key={`a-${i}`} anime={item} onOpenDetail={onOpenDetail} />)}
-            {items.map((item, i) => <AnimeCard key={`b-${i}`} anime={item} onOpenDetail={onOpenDetail} />)}
-          </div>
+      {title ? (
+        <div className="section__head">
+          <div className="section__title">{title}</div>
         </div>
-      </div>
+      ) : null}
+      {track}
     </section>
   );
-}
+});

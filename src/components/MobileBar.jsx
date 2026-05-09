@@ -1,5 +1,4 @@
 
-import React from 'react';
 import { useAnimeData } from '../hooks/useAnimeData';
 
 export default function MobileBar() {

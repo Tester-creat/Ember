@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAnimeData } from '../hooks/useAnimeData';
 
 export default function Navbar() {

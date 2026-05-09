@@ -1,7 +1,7 @@
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAnimeData, AnimeProvider } from './hooks/useAnimeData';
-import { usePerformanceMonitor } from './hooks/usePerformanceMonitor';
+import PerformanceHud from './components/PerformanceHud';
 import Navbar from './components/Navbar';
 import MobileBar from './components/MobileBar';
 import Hero from './components/Hero';
@@ -17,7 +17,6 @@ import './index.css';
 function AppContent() {
   const { currentTab, setCurrentTab, setBrowseData, currentWatchId, setCurrentWatchId, addToLibrary } = useAnimeData();
   const [selectedAnime, setSelectedAnime] = useState(null);
-  const { fps } = usePerformanceMonitor();
 
   // Initial Load
   useEffect(() => {
@@ -44,7 +43,7 @@ function AppContent() {
       case 'browse': return <Browse onOpenDetail={setSelectedAnime} />;
       case 'seasonal': return <Seasonal onOpenDetail={setSelectedAnime} />;
       case 'library': return <Library onOpenDetail={setSelectedAnime} />;
-      case 'stats': return <div className="section"><h2 className="section__title">Stats (Coming Soon)</h2></div>;
+      case 'stats': return <div className="section page-inner"><h2 className="section__title">Stats (Coming Soon)</h2></div>;
       case 'search': return <Search onOpenDetail={setSelectedAnime} />;
       default: return <Home onOpenDetail={setSelectedAnime} />;
     }
@@ -57,32 +56,19 @@ function AppContent() {
       
       {currentTab === 'home' && !currentWatchId && <Hero />}
       
-      <main className="main" id="app" style={{ 
-        paddingTop: (currentTab === 'home' && !currentWatchId) ? '0' : 'calc(var(--nav-height) + 16px)' 
-      }}>
+      <main
+        className="main"
+        id="app"
+        style={{
+          paddingTop: currentTab === 'home' && !currentWatchId ? '0' : 'calc(var(--nav-height) + 16px)',
+        }}
+      >
         {renderActiveSection()}
       </main>
 
       <MobileBar />
 
-      {/* Performance Indicator */}
-      <div className="perf-stats" style={{
-        position: 'fixed',
-        bottom: '80px',
-        right: '20px',
-        background: 'rgba(0,0,0,0.6)',
-        backdropFilter: 'blur(10px)',
-        padding: '4px 8px',
-        borderRadius: '4px',
-        fontSize: '10px',
-        color: fps < 30 ? '#ff4d4d' : '#4dff4d',
-        zIndex: 9999,
-        pointerEvents: 'none',
-        fontFamily: 'monospace',
-        opacity: 0.6
-      }}>
-        FPS: {fps}
-      </div>
+      <PerformanceHud />
 
       {/* Detail Overlay */}
       {selectedAnime && (

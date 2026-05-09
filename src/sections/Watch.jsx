@@ -1,10 +1,8 @@
 
-import React, { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useAnimeData } from '../hooks/useAnimeData';
 import { getDisplayTitle } from '../utils/animeUtils';
 import { STREAM_PROVIDERS, fetchWatchOrder } from '../utils/api';
-
-const EP_GROUP_SIZE = 40;
 
 export default function Watch() {
   const { 
@@ -52,7 +50,7 @@ export default function Watch() {
   if (!entry) return null;
 
   return (
-    <div className="watch-layout">
+    <div className="watch-layout page-inner">
       <div className="watch-main">
         <div className={`watch-player ${loading ? 'is-resolving' : ''} ${watchPlayerError ? 'has-error' : ''}`}>
           {embedUrl && <iframe src={embedUrl} allow="autoplay; fullscreen" data-watch-iframe />}

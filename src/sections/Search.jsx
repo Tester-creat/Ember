@@ -1,8 +1,10 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useAnimeData } from '../hooks/useAnimeData';
+import { useState, useEffect, useCallback } from 'react';
 import { searchAnime } from '../utils/api';
 import { AnimeCard } from '../components/AnimeRows';
+import { SEARCH_RESULTS_MAX } from '../utils/renderBudgets';
+
+const SEARCH_PAGE = 36;
 
 export default function Search({ onOpenDetail }) {
   const [query, setQuery] = useState('');
@@ -11,7 +13,6 @@ export default function Search({ onOpenDetail }) {
 
   useEffect(() => {
     if (query.length < 3) {
-      setResults([]);
       return;
     }
 
@@ -30,14 +31,19 @@ export default function Search({ onOpenDetail }) {
     return () => clearTimeout(delayDebounceFn);
   }, [query]);
 
+  const displayResults = query.length < 3 ? [] : results;
+
+  const resultsKey =
+    query.length < 3 ? 'idle' : `${query}:${displayResults.length}:${displayResults[0]?.id ?? 'x'}`;
+
   return (
-    <div className="section">
+    <div className="section page-inner">
       <div className="section__head">
         <div className="section__title">Search</div>
       </div>
-      
+
       <div className="search-page">
-        <input 
+        <input
           type="text"
           className="search-input--page"
           placeholder="Search for anime..."
@@ -52,19 +58,58 @@ export default function Search({ onOpenDetail }) {
             <p>Searching...</p>
           </div>
         ) : (
-          <div className="media-grid">
-            {results.map((anime, i) => (
-              <AnimeCard key={`${anime.id}-${i}`} anime={anime} onOpenDetail={onOpenDetail} />
-            ))}
-          </div>
+          <SearchGrid
+            key={resultsKey}
+            results={displayResults}
+            query={query}
+            onOpenDetail={onOpenDetail}
+          />
         )}
 
-        {!loading && query.length >= 3 && results.length === 0 && (
+        {!loading && query.length >= 3 && displayResults.length === 0 && (
           <div className="empty-state">
-            <p>No results found for "{query}"</p>
+            <p>No results found for &quot;{query}&quot;</p>
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+function SearchGrid({ results, query, onOpenDetail }) {
+  const [visible, setVisible] = useState(SEARCH_PAGE);
+  const showMore = useCallback(() => {
+    setVisible((v) => Math.min(v + SEARCH_PAGE, SEARCH_RESULTS_MAX));
+  }, []);
+
+  if (query.length < 3) return null;
+  if (results.length === 0) return null;
+
+  const cappedResults =
+    results.length > SEARCH_RESULTS_MAX ? results.slice(0, SEARCH_RESULTS_MAX) : results;
+  const slice = cappedResults.slice(0, visible);
+  const hasMore = cappedResults.length > slice.length;
+
+  return (
+    <>
+      {results.length > SEARCH_RESULTS_MAX && (
+        <p className="search-cap-hint">
+          Showing first {SEARCH_RESULTS_MAX} matches for performance — refine your search to narrow
+          results.
+        </p>
+      )}
+      <div className="media-grid">
+        {slice.map((anime) => (
+          <AnimeCard key={anime.id} anime={anime} onOpenDetail={onOpenDetail} />
+        ))}
+      </div>
+      {hasMore && (
+        <div className="section__footer">
+          <button type="button" className="btn btn--glass" onClick={showMore}>
+            Show more
+          </button>
+        </div>
+      )}
+    </>
   );
 }

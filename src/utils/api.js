@@ -14,7 +14,7 @@ export const STREAM_PROVIDERS = [
   },
   { 
     name: "AnimeSuge", 
-    buildUrl: (anilistId, ep, lang) => `https://animesuge.to/embed/anilist/${anilistId}/${ep}` 
+    buildUrl: (anilistId, ep) => `https://animesuge.to/embed/anilist/${anilistId}/${ep}` 
   }
 ];
 
@@ -37,7 +37,7 @@ export async function anilistFetch(query, vars, timeoutMs = 10000) {
     const json = await res.json();
     return json.data?.Page?.media || [];
   } catch (e) {
-    if (e.name === "AbortError") throw new Error("Request timed out");
+    if (e.name === "AbortError") throw new Error("Request timed out", { cause: e });
     throw e;
   } finally {
     clearTimeout(timer);
