@@ -107,6 +107,12 @@ function anikotoFetch(endpoint) {
 
 function normalizeAnikotoItem(item) {
   const aniId = Number(item.ani_id) || 0;
+  // Parse episode count safely: "?" / null / "0" all become 0 (unknown),
+  // which signals "ongoing — count not yet known" rather than "1 episode".
+  const rawEps = item.episodes;
+  const parsedEps = (rawEps && rawEps !== "?" && rawEps !== "0")
+    ? (Number(rawEps) || 0)
+    : 0;
   return {
     id: aniId,
     anilistId: aniId,
@@ -119,7 +125,7 @@ function normalizeAnikotoItem(item) {
     coverImage: {
       large: item.poster || ''
     },
-    episodes: Number(item.episodes) || 0,
+    episodes: parsedEps,
     duration: item.duration ? parseInt(item.duration) : null,
     status: item.status || '',
     averageScore: item.score && item.score !== '?' ? Math.round(Number(item.score) * 10) : 0,
@@ -175,15 +181,41 @@ async function preloadEpisodeUrls(anilistId) {
   if (!anikotoId) {
     anikotoId = await findAnikotoId(anilistId);
   }
-  if (!anikotoId) return;
+
+  const entry = getEntry(anilistId);
+
+  if (!anikotoId) {
+    // Anikoto doesn't have this series. If the entry still has episodes=0
+    // (unknown), try to recover the count from the AniList cache which
+    // may have been populated during search (includes nextAiringEpisode).
+    if (entry && !entry.episodes) {
+      const cached = anilistCache[String(anilistId)];
+      if (cached) {
+        let count = cached.episodes || 0;
+        // For currently-airing series AniList returns episodes:null but
+        // provides nextAiringEpisode.episode (= next ep number, so -1 = last aired).
+        if (!count && cached.nextAiringEpisode?.episode) {
+          count = Math.max(1, cached.nextAiringEpisode.episode - 1);
+        }
+        if (count > 0) {
+          entry.episodes = count;
+          saveData();
+        }
+      }
+    }
+    return;
+  }
+
   try {
     const res = await anikotoFetch(`/series/${anikotoId}`);
     const data = await res.json();
     if (data.ok && data.data) {
       if (data.data.anime?.episodes) {
-        const entry = getEntry(anilistId);
         const apiTotal = Number(data.data.anime.episodes);
-        if (entry && apiTotal > (entry.episodes || 0)) {
+        // Update whenever apiTotal is a valid positive number — this covers
+        // the case where entry.episodes was 0 (unknown) as well as the case
+        // where the series has grown since the entry was last saved.
+        if (entry && apiTotal > 0 && apiTotal > (entry.episodes || 0)) {
           entry.episodes = apiTotal;
           saveData();
         }
@@ -198,6 +230,13 @@ async function preloadEpisodeUrls(anilistId) {
           }
         });
         dubAvailable[String(anilistId)] = hasDub;
+
+        // If the entry episode count is still 0 after the anime-level check
+        // above, use the length of the episodes array as a minimum floor.
+        if (entry && !entry.episodes && data.data.episodes.length > 0) {
+          entry.episodes = data.data.episodes.length;
+          saveData();
+        }
       }
     }
   } catch {}
@@ -646,10 +685,19 @@ function renderLibrary() {
 function renderWatch() {
   const entry = getEntry(currentWatchId);
   if (!entry) return `<div class="empty-state"><div class="empty-state__title">Title not found</div></div>`;
-  const totalEps = entry.episodes || 1;
+
+  // 9999 is the sentinel for "ongoing / count unknown". Show "?" in the UI
+  // instead of the raw number so users aren't confused.
+  const totalEps = entry.episodes || 9999;
+  const totalLabel = (totalEps === 9999) ? "?" : totalEps;
+
   const provider = STREAM_PROVIDERS[currentProvider];
   const canDub = dubAvailable[String(entry.anilistId)] !== false;
   const langIcon = currentLanguage === "sub" ? "SUB" : "DUB";
+
+  // Only disable Next when we know the exact total and have reached it.
+  const nextDisabled = (totalEps !== 9999 && currentEpisode >= totalEps) ? "disabled" : "";
+
   return `<div class="watch-layout">
     <div class="watch-main">
       <div class="watch-player is-resolving">
@@ -657,12 +705,12 @@ function renderWatch() {
       </div>
       <div class="watch-meta" style="margin-top:var(--space-lg)">
         <h1 class="watch-meta__title" style="font-family:var(--font-display);font-size:32px;font-weight:800">${escapeHtml(getDisplayTitle(entry))}</h1>
-        <div class="watch-meta__info" style="color:var(--text-muted);margin-top:var(--space-xs)">Episode ${currentEpisode} of ${totalEps} &bull; ${currentLanguage.toUpperCase()}</div>
+        <div class="watch-meta__info" style="color:var(--text-muted);margin-top:var(--space-xs)">Episode ${currentEpisode} of ${totalLabel} &bull; ${currentLanguage.toUpperCase()}</div>
         
         <div class="watch-actions" style="margin-top:var(--space-lg);display:flex;gap:var(--space-md);flex-wrap:wrap">
           <div style="display:flex;gap:var(--space-sm)">
             <button class="btn btn--glass btn--sm" data-action="prev-episode" ${currentEpisode <= 1 ? "disabled" : ""}>Previous</button>
-            <button class="btn btn--glass btn--sm" data-action="next-episode" ${currentEpisode >= totalEps ? "disabled" : ""}>Next</button>
+            <button class="btn btn--glass btn--sm" data-action="next-episode" ${nextDisabled}>Next</button>
           </div>
           
           <div style="display:flex;gap:var(--space-sm)">
@@ -676,7 +724,7 @@ function renderWatch() {
       </div>
     </div>
     <div class="watch-sidebar" id="episodeSidebar">
-      <div class="watch-sidebar__title">Episodes</div>
+      <div class="watch-sidebar__title">Episodes${totalLabel !== "?" ? ` (${totalLabel})` : ""}</div>
       <div class="watch-sidebar__list" style="overflow-y:auto;flex:1">
         ${renderEpisodeList(entry, totalEps)}
       </div>
@@ -685,15 +733,38 @@ function renderWatch() {
 }
 
 function renderEpisodeList(entry, total) {
+  // When total is the 9999 sentinel (ongoing / unknown count), render a
+  // windowed range of 100 episodes centred on the current episode so the
+  // DOM stays manageable. The user can still navigate freely with Prev/Next.
+  const WINDOW = 100;
+  const isUnknown = total === 9999;
+  const renderFrom = isUnknown ? Math.max(1, currentEpisode - Math.floor(WINDOW / 2)) : 1;
+  const renderTo   = isUnknown ? renderFrom + WINDOW - 1 : total;
+
   let html = "";
-  for (let i = 1; i <= total; i++) {
+
+  // Show a note at the top when the list is windowed
+  if (isUnknown && renderFrom > 1) {
+    html += `<div class="ep-row" style="opacity:0.5;font-size:0.75rem;justify-content:center">
+      … episodes 1–${renderFrom - 1} (use Prev to navigate) …
+    </div>`;
+  }
+
+  for (let i = renderFrom; i <= renderTo; i++) {
     const isCurrent = i === currentEpisode;
     const watched = i <= (entry.episodesWatched || 0);
     html += `<div class="ep-row ${isCurrent ? "is-current" : ""} ${watched ? "is-watched" : ""}" data-action="set-episode" data-ep="${i}" role="button" tabindex="0">
-      <span class="ep-num">${watched ? "&#10003; " : ""}${i}</span>
+      <span class="ep-num">${watched ? "&#10003;" : i}</span>
       <span class="ep-info">Episode ${i}</span>
     </div>`;
   }
+
+  if (isUnknown) {
+    html += `<div class="ep-row" style="opacity:0.5;font-size:0.75rem;justify-content:center">
+      … use Next to continue beyond episode ${renderTo} …
+    </div>`;
+  }
+
   return html;
 }
 
@@ -919,6 +990,9 @@ function setRating(id, stars) {
 function addToLibrary(anime) {
   const id = String(anime.id);
   if (userData[id]) { showToast("Already in library.", "error"); return; }
+  // Use the episode count from the anime object. For ongoing series where
+  // the API returns "?" or 0, store 0 here — openWatchView will attempt
+  // to resolve the real count via preloadEpisodeUrls before rendering.
   userData[id] = {
     id: anime.id, anilistId: anime.id,
     title: getTitle(anime), titleEnglish: anime.title?.english || "",
@@ -938,14 +1012,24 @@ async function openWatchView(id) {
   const entry = getEntry(id);
   if (!entry) { showToast("Title not found.", "error"); return; }
   currentWatchId = id;
-  currentEpisode = Math.min((entry.episodesWatched || 0) + 1, entry.episodes || 1);
   currentProvider = 0;
   currentLanguage = entry.language || "sub";
   entry.status = "watching";
   entry.lastWatched = Date.now();
   saveData();
+
+  // Resolve the real episode count before rendering. This updates
+  // entry.episodes in-place if Anikoto or the AniList cache has a better value.
   await preloadEpisodeUrls(entry.anilistId);
-  currentEpisode = Math.min(currentEpisode, entry.episodes || 1);
+
+  // Use the now-resolved episode count. Fall back to a large sentinel (9999)
+  // for ongoing series where the count is still unknown — this ensures the
+  // episode list and Next button are never artificially capped at 1.
+  const knownTotal = entry.episodes || 9999;
+
+  // Start on the next unwatched episode, clamped to the known total.
+  currentEpisode = Math.min((entry.episodesWatched || 0) + 1, knownTotal);
+
   currentTab = "watch";
   const hero = document.getElementById("hero");
   const app = document.getElementById("app");
@@ -957,10 +1041,13 @@ async function openWatchView(id) {
 function markEpisodeWatched(id) {
   const entry = getEntry(id);
   if (!entry) return;
-  const total = entry.episodes || 1;
-  entry.episodesWatched = Math.min((entry.episodesWatched || 0) + 1, total);
+  // Use 9999 sentinel for unknown totals — never auto-complete an ongoing series
+  const total = entry.episodes || 9999;
+  entry.episodesWatched = (total === 9999)
+    ? (entry.episodesWatched || 0) + 1
+    : Math.min((entry.episodesWatched || 0) + 1, total);
   entry.lastWatched = Date.now();
-  if (entry.episodesWatched >= total && entry.status !== "completed") {
+  if (total !== 9999 && entry.episodesWatched >= total && entry.status !== "completed") {
     entry.status = "completed";
     entry.completedAt = Date.now();
     saveData();
@@ -1115,8 +1202,9 @@ document.addEventListener("click", e => {
   if (action === "next-episode") {
     const entry = getEntry(currentWatchId);
     if (!entry) return;
-    const total = entry.episodes || 1;
-    if (currentEpisode < total) { currentEpisode++; currentProvider = 0; renderContent(); }
+    // Use 9999 sentinel for unknown totals so Next is never blocked
+    const total = entry.episodes || 9999;
+    if (total === 9999 || currentEpisode < total) { currentEpisode++; currentProvider = 0; renderContent(); }
   }
 
   if (action === "prev-episode") {
