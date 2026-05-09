@@ -72,3 +72,34 @@
    - **Error:** User complained that they could only watch anime after manually adding it to their library.
    - **Fix:** Redesigned the detail overlay. The primary "Watch Now" button is now always visible regardless of library status. Clicking it will implicitly add the anime to the library (since tracking requires it) and immediately launch the watch player in one seamless action.
 
+
+---
+
+## Current Initiative: AniVault Design System Migration (CSS Overhaul)
+**Goal:** Port AniVault's visual language into Ember's `styles.css` — new design tokens, Inter typeface, floating glass pill nav, cinematic hero, spring-eased cards, responsive grids, section reveal animations, glass watch sidebar, and full WCAG-compliant contrast. All 15 tasks from `INSTRUCTIONS.md` applied.
+
+**Status:** 100% Complete ✅
+
+### Execution Plan:
+1. **Task 1 — Design Token Foundation (✅)** — Replaced `:root` with full AniVault token set (palette, accent, text, glass, fluid spacing, fluid type scale, shape, motion, layout, z-index). Added legacy aliases so existing `app.js` inline styles continue to work without any JS changes.
+2. **Task 2 — Base & Reset (✅)** — Replaced body/reset block. Inter font imported via `@import` in CSS (not in `index.html` which only had Plus Jakarta Sans / Outfit). Scrollbar, selection, focus-visible, reduced-motion-safe defaults.
+3. **Task 3 — Navigation (✅)** — Floating glass pill nav. `.nav` is the shell, `.nav__inner` is the pill. Kept Ember's orange→violet logo gradient as brand identity. Mobile bottom bar uses `var(--glass-bg)` + `var(--blur)`.
+4. **Task 4 — Hero Section (✅)** — Cinematic hero with radial ambient glow (`::before`), particle-grid texture (`::after`), gradient title text, eyebrow badge, responsive body layout.
+5. **Task 5 — Buttons (✅)** — Primary gradient violet `.btn`, glass secondary `.btn--glass`, small `.btn--sm`, amber `.btn--amber`, ghost `.btn-ghost`. Spring easing on hover lift.
+6. **Task 6 — Cards (✅)** — `.anime-card` with spring hover, inset accent ring, image scale. Continue cards, progress bars, star inline ratings all updated.
+7. **Task 7 — Grids (✅)** — Responsive auto-fill grid with fluid `minmax`. Horizontal scroll rows with snap. Stats grid.
+8. **Task 8 — Sections (✅)** — `sectionReveal` animation with staggered delays. Section head, title, stat cards.
+9. **Task 9 — Watch View (✅)** — Single-column mobile, two-column ≥1024px. Glass sidebar sticky. `is-resolving` pulse overlay. Episode rows with active/watched states.
+10. **Task 10 — Modals & Overlays (✅)** — `.overlay` fade + `.overlay-card` scale-in. Shortcuts modal. `scaleModal` keyframe.
+11. **Task 11 — Form Elements (✅)** — Inputs, textarea, select with accent focus ring. Chips/filter pills. Notes textarea. Rating stars.
+12. **Task 12 — Toasts (✅)** — Bottom-right stack, `toastIn` slide animation, success/error/info left-border variants.
+13. **Task 13 — Skeleton Loaders (✅)** — `.skeleton` shimmer keyframe added.
+14. **Task 14 — Reduce Motion (✅)** — `prefers-reduced-motion` block disables all animations/transitions.
+15. **Task 15 — Content Shell (✅)** — `.main` padding accounts for nav + mobile bar + safe-area. Container max-width. Browse/library controls. Empty state. Footer.
+
+### Notes for Future AIs:
+- `sw.js` cache bumped from `ember-v1-cache` → `ember-v2-cache`. Users must hard-refresh or clear SW cache to see the new styles.
+- Inter font is loaded via `@import` at the top of `styles.css`. Do NOT add it to `index.html` to avoid a duplicate load.
+- The Ember logo gradient (`#f59e0b` → `var(--accent-hi)`) is intentionally preserved in `.nav__name` as the brand identity. All other UI uses violet tokens.
+- Legacy CSS variable aliases are defined in `:root` so `app.js` inline styles (e.g. `color:var(--accent)`, `var(--space-lg)`) continue to resolve correctly without any JS changes.
+- The `--font-display` alias now points to Inter (same as `--font-main`). The Outfit/Plus Jakarta Sans imports were removed.

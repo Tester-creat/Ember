@@ -1,4 +1,4 @@
-const CACHE_NAME = "ember-v1-cache";
+const CACHE_NAME = "ember-v2-cache";
 const ASSETS_TO_CACHE = [
   "./",
   "./index.html",
