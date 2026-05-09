@@ -412,6 +412,11 @@ a { color: inherit; text-decoration: none; }
   will-change: transform, opacity;
 }
 
+.hero__bg--placeholder {
+  background-image: none !important;
+  background: linear-gradient(125deg, var(--bg) 0%, rgba(124, 58, 237, 0.38) 42%, rgba(245, 158, 11, 0.22) 100%);
+}
+
 .hero__bg--ken-burns {
   transform: scale(1);
   animation: kenBurns 12s ease-out forwards;
@@ -791,7 +796,67 @@ button:disabled {
   .anime-card:hover { transform: none; box-shadow: none; }
 }
 
-/* Card cover image */
+/* Card cover image + shared placeholder system (INSTRUCTIONS §4) */
+.cover-media {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  background: var(--bg3);
+}
+
+.cover-media__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform var(--dur-slow) var(--ease-out);
+}
+
+.cover-media__ph {
+  display: none;
+  position: absolute;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(1.35rem, 5vw, 2.6rem);
+  font-weight: 800;
+  color: var(--text2);
+  background: linear-gradient(155deg, rgba(124, 58, 237, 0.28), var(--bg3));
+  letter-spacing: -0.04em;
+  pointer-events: none;
+}
+
+.cover-media.is-fallback .cover-media__ph {
+  display: flex;
+}
+
+.cover-media--continue-bg {
+  position: absolute;
+  inset: 0;
+}
+
+.cover-media--continue-poster {
+  border-radius: inherit;
+}
+
+.stop-ep-card__cover > .cover-media,
+.wo-card__cover > .cover-media {
+  width: 100%;
+  height: 100%;
+}
+
+.overlay-card__media > .cover-media--overlay {
+  width: 100%;
+  min-height: 220px;
+}
+
+@media (min-width: 768px) {
+  .overlay-card__media > .cover-media--overlay {
+    min-height: 100%;
+  }
+}
+
 .anime-card__media {
   position: relative;
   width: 100%;
@@ -800,15 +865,7 @@ button:disabled {
   background: var(--bg3);
 }
 
-.anime-card__media img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-  transition: transform var(--dur-slow) var(--ease-out);
-}
-
-.anime-card:hover .anime-card__media img {
+.anime-card:hover .anime-card__media .cover-media__img {
   transform: scale(1.08);
 }
 
@@ -934,7 +991,7 @@ button:disabled {
   filter: blur(20px);
 }
 
-.continue-card__bg img {
+.continue-card__bg .cover-media__img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -958,7 +1015,7 @@ button:disabled {
   background: var(--bg3);
 }
 
-.continue-card__poster img {
+.continue-card__poster .cover-media__img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -1438,7 +1495,7 @@ button:disabled {
   background: var(--bg3);
 }
 
-.overlay-card__media img {
+.overlay-card__media .cover-media__img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -2359,7 +2416,7 @@ body::before {
   background: var(--bg3);
 }
 
-.stop-ep-card__cover img {
+.stop-ep-card__cover .cover-media__img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -2582,7 +2639,7 @@ body::before {
   overflow: hidden;
 }
 
-.wo-card__cover img {
+.wo-card__cover .cover-media__img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -2590,7 +2647,7 @@ body::before {
   transition: transform var(--dur-slow) var(--ease-out);
 }
 
-.wo-card:hover .wo-card__cover img {
+.wo-card:hover .wo-card__cover .cover-media__img {
   transform: scale(1.06);
 }
 

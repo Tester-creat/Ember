@@ -19,6 +19,8 @@ let heroTimer = null;
 let heroObserver = null;
 let heroSwipeStartX = 0;
 let heroSwipeStartY = 0;
+/** Bumps when watching list or browse feed (hero padding) changes; avoids re-init on every home re-render. */
+let heroSourceSig = null;
 const HERO_INTERVAL = 8000; // 8 seconds per slide
 
 // Feature 1: group size constant — 40 episodes per group
@@ -415,6 +417,7 @@ function importLibrary(file) {
         genres:          entry.genres || [],
         year:            entry.year || entry.seasonYear || 0,
         averageScore:    entry.averageScore || 0,
+        format:          entry.format || "",
       };
 
       if (userData[id]) {
@@ -626,6 +629,17 @@ function updateHeroBackground(anime) {
   // Legacy function - kept for compatibility but logic moved to hero controller
 }
 
+/** Fingerprint of data that feeds the cinematic hero (INSTRUCTIONS §1 fallback uses browse results). */
+function getHeroSourceSignature() {
+  const entries = getAnimeEntries();
+  const watching = entries
+    .filter(e => e.status === "watching")
+    .sort((a, b) => (b.lastWatched || 0) - (a.lastWatched || 0));
+  const wids = watching.map(e => String(e.id)).join(",");
+  const bids = browseData.results.slice(0, 40).map(a => String(a.id)).join(",");
+  return `${wids}|${bids}`;
+}
+
 /* ══ HERO SYSTEM ═══════════════════════════════════════════════ */
 function initHeroSystem() {
   const entries = getAnimeEntries();
@@ -679,15 +693,22 @@ function renderHeroSlide() {
   const genreChips = (anime.genres || []).slice(0, 3)
     .map(g => `<span class="hero__genre-chip">${escapeHtml(g)}</span>`).join("");
 
-  // Crossfade background with CSS animations
-  if (heroBg && banner) {
+  // Crossfade background with CSS animations (gradient fallback if no art — INSTRUCTIONS §1)
+  if (heroBg) {
     const prevBg = heroEl.querySelector(".hero__bg--prev");
     if (prevBg) prevBg.remove();
 
-    heroBg.style.backgroundImage = `url(${banner})`;
-    heroBg.classList.remove("hero__bg--ken-burns", "hero__bg--crossfade-in");
-    void heroBg.offsetWidth;
-    heroBg.classList.add("hero__bg--crossfade-in", "hero__bg--ken-burns");
+    if (banner) {
+      heroBg.classList.remove("hero__bg--placeholder");
+      heroBg.style.backgroundImage = `url(${banner})`;
+      heroBg.classList.remove("hero__bg--ken-burns", "hero__bg--crossfade-in");
+      void heroBg.offsetWidth;
+      heroBg.classList.add("hero__bg--crossfade-in", "hero__bg--ken-burns");
+    } else {
+      heroBg.style.backgroundImage = "";
+      heroBg.classList.remove("hero__bg--ken-burns", "hero__bg--crossfade-in");
+      heroBg.classList.add("hero__bg--placeholder");
+    }
   }
 
   // Slide content transition: fade-out old, then fade-in new
@@ -777,7 +798,8 @@ function setupHeroObserver() {
 
 function setupHeroTouch() {
   const heroEl = document.getElementById("hero");
-  if (!heroEl) return;
+  if (!heroEl || heroEl.dataset.emberHeroTouch === "1") return;
+  heroEl.dataset.emberHeroTouch = "1";
   heroEl.addEventListener("touchstart", (e) => {
     const t = e.touches[0];
     if (t) handleHeroSwipeStart(t.clientX, t.clientY);
@@ -824,10 +846,24 @@ function getCoverSrc(anime) {
   return anime.cover || anime.coverImage?.large || anime.coverImage?.medium || anime.poster || "";
 }
 
-function renderImgSafe(src, alt, className) {
-  if (!src) return "";
-  const cls = className ? ` class="${escapeHtml(className)}"` : "";
-  return `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt || "")}" loading="lazy"${cls} onerror="this.style.display='none'">`;
+/** Placeholder-backed cover (INSTRUCTIONS §4 — no empty / broken-image gaps). */
+function renderCoverMedia(src, title, variant = "card") {
+  const allowed = new Set(["card", "continue-bg", "continue-poster", "stop-ep", "overlay", "wo"]);
+  const v = allowed.has(variant) ? variant : "card";
+  const initial = escapeHtml((title || "?").trim().slice(0, 1).toUpperCase());
+  const ph = `<span class="cover-media__ph">${initial}</span>`;
+  const vClass = `cover-media--${v}`;
+  if (!src) {
+    return `<div class="cover-media ${vClass} is-fallback">${ph}</div>`;
+  }
+  return `<div class="cover-media ${vClass}">
+    <img src="${escapeHtml(src)}" alt="${escapeHtml(title || "")}" loading="lazy" class="cover-media__img" onerror="const p=this.parentElement;this.remove();p.classList.add('is-fallback');">
+    ${ph}
+  </div>`;
+}
+
+function renderImgSafe(src, alt, className, variant = "card") {
+  return renderCoverMedia(src, alt || "", variant);
 }
 function getTitle(media) {
   return media.titleEnglish || media.title?.english || media.title?.romaji || media.title || media.title?.native || "Unknown Title";
@@ -1001,7 +1037,7 @@ function _paintWatchOrder(mount, anilistId, relations) {
 
     return `<div class="wo-card" data-action="open-watch-order" data-id="${item.id}" role="button" tabindex="0">
       <div class="wo-card__cover">
-        ${cover ? `<img src="${escapeHtml(cover)}" alt="${escapeHtml(title)}" loading="lazy">` : ""}
+        ${renderCoverMedia(cover, title, "wo")}
       </div>
       <div class="wo-card__body">
         <div class="wo-card__badge">${escapeHtml(badge)}</div>
@@ -1086,11 +1122,18 @@ function afterRender() {
   }
   updateNavActive();
   
-  // Hero section management
+  // Hero section management (INSTRUCTIONS §5: only on Home, not during watch)
   const heroEl = document.getElementById("hero");
   if (currentTab === "home" && currentWatchId === null) {
     if (heroEl) heroEl.style.display = "flex";
-    if (heroItems.length === 0 || currentTab === "home") initHeroSystem();
+    const sig = getHeroSourceSignature();
+    if (sig !== heroSourceSig) {
+      heroSourceSig = sig;
+      initHeroSystem();
+    } else if (heroItems.length > 1 && !heroTimer) {
+      startHeroRotation();
+      setupHeroObserver();
+    }
   } else {
     if (heroEl) heroEl.style.display = "none";
     stopHeroRotation();
@@ -1133,6 +1176,17 @@ function parseFranchise(title) {
   return { franchise: lower, season: 0 };
 }
 
+/** Tie-break within same year/franchise (INSTRUCTIONS §3 — TV / movie / OVA ordering). */
+const FORMAT_SORT_RANK = {
+  TV: 0, TV_SHORT: 1, MOVIE: 2, OVA: 3, ONA: 4, SPECIAL: 5, MUSIC: 9,
+};
+
+function formatSortRank(entry) {
+  const f = String(entry.format || "").toUpperCase().replace(/\s+/g, "_");
+  if (Object.prototype.hasOwnProperty.call(FORMAT_SORT_RANK, f)) return FORMAT_SORT_RANK[f];
+  return 6;
+}
+
 function sortCompletedEntries(entries) {
   const parsed = entries.map(e => {
     const info = parseFranchise(e.titleEnglish || e.title || "");
@@ -1144,8 +1198,27 @@ function sortCompletedEntries(entries) {
     const fb = b.franchise || "";
     const cmp = fa.localeCompare(fb);
     if (cmp !== 0) return cmp;
+
+    const ya = a.entry.year || 0;
+    const yb = b.entry.year || 0;
+    if (ya !== yb) return ya - yb;
+
     if (a.season !== b.season) return (a.season || 0) - (b.season || 0);
-    return (a.entry.year || 0) - (b.entry.year || 0);
+
+    const ra = formatSortRank(a.entry);
+    const rb = formatSortRank(b.entry);
+    if (ra !== rb) return ra - rb;
+
+    const ca = a.entry.completedAt || 0;
+    const cb = b.entry.completedAt || 0;
+    if (ca !== cb) return ca - cb;
+
+    const ta = a.entry.titleEnglish || a.entry.title || "";
+    const tb = b.entry.titleEnglish || b.entry.title || "";
+    const tcmp = String(ta).localeCompare(String(tb));
+    if (tcmp !== 0) return tcmp;
+
+    return String(a.entry.id).localeCompare(String(b.entry.id));
   });
 
   return parsed.map(p => p.entry);
@@ -1203,12 +1276,13 @@ function renderContinueWatching(entries) {
 
 function renderContinueCard(entry) {
   const poster = getCoverSrc(entry);
+  const t = getDisplayTitle(entry);
   const nextEp = (entry.episodesWatched || 0) + 1;
   const totalEp = entry.episodes || "?";
   return `<div class="continue-card" data-action="open-watch" data-id="${entry.id}" role="button" tabindex="0">
-    <div class="continue-card__bg">${renderImgSafe(poster, "")}</div>
+    <div class="continue-card__bg">${renderCoverMedia(poster, t, "continue-bg")}</div>
     <div class="continue-card__content">
-      <div class="continue-card__poster">${renderImgSafe(poster, "")}</div>
+      <div class="continue-card__poster">${renderCoverMedia(poster, t, "continue-poster")}</div>
       <div class="continue-card__info">
         <div class="continue-card__title">${escapeHtml(getDisplayTitle(entry))}</div>
         <div class="continue-card__ep">Ep ${nextEp} / ${totalEp}</div>
@@ -1540,7 +1614,7 @@ function renderStats() {
   const topEpCards = s.topByEpisodes.map(e => {
     const pct = e.episodes > 0 ? Math.round((e.episodesWatched / e.episodes) * 100) : 100;
     return `<div class="stop-ep-card" data-action="open-watch" data-id="${e.id}" role="button" tabindex="0">
-      <div class="stop-ep-card__cover">${renderImgSafe(getCoverSrc(e), "")}</div>
+      <div class="stop-ep-card__cover">${renderCoverMedia(getCoverSrc(e), getDisplayTitle(e), "stop-ep")}</div>
       <div class="stop-ep-card__info">
         <div class="stop-ep-card__title">${escapeHtml(getDisplayTitle(e))}</div>
         <div class="stop-ep-card__eps">${e.episodesWatched} / ${e.episodes || '?'} eps</div>
@@ -1693,7 +1767,7 @@ function renderCard(anime) {
   const img = getCoverSrc(anime);
   const meta = [anime.episodes ? `${anime.episodes} eps` : "", anime.averageScore ? `${anime.averageScore}%` : ""].filter(Boolean).join(" • ");
   return `<div class="anime-card" data-action="open-detail" data-id="${anime.id}" role="button" tabindex="0">
-    <div class="anime-card__media">${renderImgSafe(img, title)}</div>
+    <div class="anime-card__media">${renderCoverMedia(img, title, "card")}</div>
     <div class="anime-card__body">
       <div class="anime-card__title">${escapeHtml(title)}</div>
       ${meta ? `<div class="anime-card__meta">${escapeHtml(meta)}</div>` : ""}
@@ -1708,7 +1782,7 @@ function renderEntryCard(entry) {
   const stars = entry.rating > 0 ? renderStarsInline(entry.rating) : "";
   return `<div class="anime-card" data-action="open-watch" data-id="${entry.id}" role="button" tabindex="0">
     <div class="anime-card__media">
-      ${renderImgSafe(img, title)}
+      ${renderCoverMedia(img, title, "card")}
       <div class="status-badge" data-status="${entry.status}">${getStatusLabel(entry.status)}</div>
     </div>
     <div class="anime-card__body">
@@ -2206,7 +2280,7 @@ function renderDetailOverlay(anime) {
   const entryRating = existing?.rating || 0;
   return `<div class="overlay-card" data-overlay-card>
     <div class="overlay-card__media">
-      ${renderImgSafe(img, title)}
+      ${renderCoverMedia(img, title, "overlay")}
     </div>
     <div class="overlay-card__content" style="padding:var(--space-lg);display:flex;flex-direction:column;gap:var(--space-md)">
       <div>
@@ -2341,6 +2415,7 @@ function addToLibrary(anime, status = "plan-to-watch") {
     rating:          isUpdate ? userData[id].rating : 0,
     genres:          anime.genres || [],
     averageScore:    anime.averageScore || 0,
+    format:          isUpdate ? (userData[id].format || anime.format || "") : (anime.format || ""),
     notes:           isUpdate ? userData[id].notes : "",
     dateAdded:       isUpdate ? userData[id].dateAdded : Date.now(),
     lastWatched:     isUpdate ? userData[id].lastWatched : 0,
