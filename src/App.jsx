@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAnimeData, AnimeProvider } from './hooks/useAnimeData';
 import Navbar from './components/Navbar';
+import MobileBar from './components/MobileBar';
 import Hero from './components/Hero';
 import Home from './sections/Home';
 import Browse from './sections/Browse';
@@ -13,7 +14,7 @@ import { anikotoFetch } from './utils/api';
 import './index.css';
 
 function AppContent() {
-  const { currentTab, setBrowseData, currentWatchId } = useAnimeData();
+  const { currentTab, setCurrentTab, setBrowseData, currentWatchId, setCurrentWatchId, addToLibrary } = useAnimeData();
   const [selectedAnime, setSelectedAnime] = useState(null);
 
   // Initial Load
@@ -60,6 +61,8 @@ function AppContent() {
         {renderActiveSection()}
       </main>
 
+      <MobileBar />
+
       {/* Detail Overlay */}
       {selectedAnime && (
         <div className="overlay" style={{ display: 'flex' }} onClick={() => setSelectedAnime(null)}>
@@ -78,10 +81,14 @@ function AppContent() {
               <div className="overlay__desc" dangerouslySetInnerHTML={{ __html: selectedAnime.description }} />
               <div className="overlay__actions">
                 <button className="btn btn--primary" onClick={() => {
-                  // Open watch logic
+                  setCurrentWatchId(selectedAnime.id);
+                  setCurrentTab('watch');
                   setSelectedAnime(null);
                 }}>Watch Now</button>
-                <button className="btn btn--glass">Add to List</button>
+                <button className="btn btn--glass" onClick={() => {
+                  addToLibrary(selectedAnime, "plan-to-watch");
+                  setSelectedAnime(null);
+                }}>Add to List</button>
               </div>
             </div>
           </div>

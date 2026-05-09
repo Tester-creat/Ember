@@ -28,14 +28,8 @@ export default function Watch() {
     const resolve = async () => {
       setLoading(true);
       try {
-        // This would call the provider logic
-        // For simplicity in this initial port, I'll use the VidNest fallback logic
-        const provider = [
-          { buildUrl: (e, ep, l) => `https://vidnest.fun/anime/${e.anilistId}/${ep}/${l}` },
-          { buildUrl: (e, ep, l) => `https://vidsrc.cc/v2/embed/anime/${e.anilistId}/${ep}${l === 'dub' ? '/dub' : ''}` }
-        ][currentProvider % 2];
-        
-        const url = provider.buildUrl(entry, currentEpisode, currentLanguage);
+        const provider = STREAM_PROVIDERS[currentProvider % STREAM_PROVIDERS.length];
+        const url = provider.buildUrl(entry.anilistId, currentEpisode, currentLanguage);
         setEmbedUrl(url);
       } catch (e) {
         setWatchPlayerError({ provider: 'Provider', message: e.message });
@@ -101,8 +95,8 @@ export default function Watch() {
               <button className="btn btn--glass btn--sm" onClick={() => setCurrentLanguage(prev => prev === 'sub' ? 'dub' : 'sub')}>
                 {currentLanguage.toUpperCase()}
               </button>
-              <button className="btn btn--primary btn--sm" onClick={() => setCurrentProvider(prev => prev + 1)}>
-                Switch Provider
+              <button className="btn btn--primary btn--sm" onClick={() => setCurrentProvider(prev => (prev + 1) % STREAM_PROVIDERS.length)}>
+                {STREAM_PROVIDERS[currentProvider % STREAM_PROVIDERS.length].name}
               </button>
             </div>
 
@@ -138,13 +132,15 @@ export default function Watch() {
             <div className="wo-cards">
               {watchOrder.map(edge => (
                 <div key={edge.node.id} className="wo-card" onClick={() => {
-                  // Navigate logic
+                  setCurrentWatchId(edge.node.id);
+                  setCurrentEpisode(1);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}>
                   <div className="wo-card__cover">
-                    <img src={edge.node.coverImage.medium} alt="" />
+                    <img src={edge.node.coverImage.large || edge.node.coverImage.medium} alt="" />
                   </div>
                   <div className="wo-card__body">
-                    <div className="wo-card__badge">{edge.relationType}</div>
+                    <div className="wo-card__badge">{edge.relationType.replace(/_/g, ' ')}</div>
                     <div className="wo-card__title">{edge.node.title.english || edge.node.title.romaji}</div>
                   </div>
                 </div>

@@ -3,6 +3,22 @@ import { normalizeAnime } from './animeUtils';
 
 const ANILIST_API = "https://graphql.anilist.co";
 
+export const STREAM_PROVIDERS = [
+  { 
+    name: "VidNest", 
+    buildUrl: (anilistId, ep, lang) => `https://vidnest.fun/anime/${anilistId}/${ep}/${lang}` 
+  },
+  { 
+    name: "VidSrc", 
+    buildUrl: (anilistId, ep, lang) => `https://vidsrc.cc/v2/embed/anime/${anilistId}/${ep}${lang === 'dub' ? '/dub' : ''}` 
+  },
+  { 
+    name: "AnimeSuge", 
+    buildUrl: (anilistId, ep, lang) => `https://animesuge.to/embed/anilist/${anilistId}/${ep}` 
+  }
+];
+
+
 export async function anilistFetch(query, vars, timeoutMs = 10000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
