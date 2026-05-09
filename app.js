@@ -256,7 +256,11 @@ function loadData() {
   catch { userData = {}; }
 }
 function saveData() {
-  localStorage.setItem("ember_data", JSON.stringify(userData));
+  const dataStr = JSON.stringify(userData);
+  if (dataStr.length > 4500000) {
+    showToast("Library data is getting large. Consider exporting a backup.", "warning");
+  }
+  localStorage.setItem("ember_data", dataStr);
 }
 function getAnimeEntries() {
   return Object.values(userData).filter(e => e && e.id);
@@ -266,131 +270,6 @@ function getEntry(id) {
 }
 
 /* ══ IMPORT / EXPORT ════════════════════════════════════════════ */
-function mapEmberToAniVault(entry) {
-  const STATUS_REVERSE = {
-    "watching":      "Watching",
-    "completed":     "Completed",
-    "queued":        "Queued",
-    "plan-to-watch": "Plan to Watch",
-    "dropped":       "Dropped",
-    "paused":        "Paused",
-    "untracked":     "Untracked",
-  };
-  return {
-    status:           STATUS_REVERSE[entry.status] || entry.status,
-    rating:           entry.rating || 0,
-    episodesWatched:  entry.episodesWatched || 0,
-    totalEpisodes:    entry.episodes || 0,
-    notes:            entry.notes || "",
-    title: {
-      romaji:  entry.title || "",
-      english: entry.titleEnglish || "",
-      native:  entry.titleNative || "",
-    },
-    coverImage: {
-      large: entry.cover || "",
-    },
-    genres:       entry.genres || [],
-    averageScore: entry.averageScore || 0,
-    year:         entry.year || 0,
-  };
-}
-
-function generateExportFilename() {
-  const d = new Date();
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `anivault-backup-${yyyy}-${mm}-${dd}.json`;
-}
-
-function exportLibrary() {
-  const output = {};
-
-  // Map all library entries to anivault_v2 schema
-  for (const [idStr, entry] of Object.entries(userData)) {
-    if (!entry || !entry.id) continue;
-    output[idStr] = mapEmberToAniVault(entry);
-  }
-
-  // Include __meta passthrough or generate a minimal block
-  const storedMeta = localStorage.getItem("ember_anivault_meta");
-  output.__meta = storedMeta
-    ? JSON.parse(storedMeta)
-    : { source: "ember", exportedAt: new Date().toISOString() };
-
-  const blob = new Blob([JSON.stringify(output, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = generateExportFilename();
-  a.click();
-  URL.revokeObjectURL(url);
-  showToast("Library exported.", "success");
-}
-
-function mapAniVaultEntry(idStr, av2Entry) {
-  const STATUS_MAP = {
-    "Watching": "watching",
-    "Completed": "completed",
-    "Queued": "queued",
-    "Plan to Watch": "plan-to-watch",
-    "Dropped": "dropped",
-    "Paused": "paused",
-    "Untracked": "untracked",
-  };
-  const numericId = parseInt(idStr, 10);
-  const rawStatus = av2Entry.status || "";
-  // Try title-case map first, then lowercase direct match, then fallback
-  const status = STATUS_MAP[rawStatus]
-    || (STATUS_ORDER.includes(rawStatus) ? rawStatus : "untracked");
-  return {
-    id: numericId,
-    anilistId: numericId,
-    title: (av2Entry.title && (av2Entry.title.romaji || av2Entry.title.english)) || "",
-    titleEnglish: (av2Entry.title && av2Entry.title.english) || "",
-    cover: (av2Entry.coverImage && av2Entry.coverImage.large) || "",
-    episodes: av2Entry.totalEpisodes || 0,
-    episodesWatched: av2Entry.episodesWatched || 0,
-    status,
-    rating: av2Entry.rating || 0,
-    notes: av2Entry.notes || "",
-    genres: av2Entry.genres || [],
-    averageScore: av2Entry.averageScore || 0,
-    year: av2Entry.year || av2Entry.seasonYear || 0,
-  };
-}
-
-function extractMeta(data) {
-  if ("__meta" in data) {
-    localStorage.setItem("ember_anivault_meta", JSON.stringify(data.__meta));
-  }
-  const { __meta, ...entries } = data;
-  return entries;
-}
-
-function mergeEntries(importedEntries) {
-  let added = 0, updated = 0, skipped = 0;
-  for (const [idStr, imported] of Object.entries(importedEntries)) {
-    if (!/^\d+$/.test(idStr)) continue;          // skip non-numeric keys
-    const mapped = mapAniVaultEntry(idStr, imported);
-    const existing = userData[idStr];
-    if (!existing) {
-      userData[idStr] = mapped;
-      added++;
-    } else {
-      const merged = { ...existing, ...mapped };
-      if (JSON.stringify(merged) !== JSON.stringify(existing)) {
-        userData[idStr] = merged;
-        updated++;
-      } else {
-        skipped++;
-      }
-    }
-  }
-  return { added, updated, skipped };
-}
-
 function importLibrary(file) {
   const reader = new FileReader();
   reader.onerror = () => showToast("Import failed: could not read file", "error");
@@ -402,27 +281,176 @@ function importLibrary(file) {
       showToast("Import failed: invalid JSON", "error");
       return;
     }
-    // Must be a plain object (not array, null, string, etc.)
-    if (typeof data !== "object" || data === null || Array.isArray(data)) {
-      showToast("Import failed: expected an object", "error");
+
+    const isAniVault = data.schemaVersion === 1 && data.library && typeof data.library === "object";
+    const isEmberFlat = !data.schemaVersion && typeof data === "object" && data !== null && !Array.isArray(data);
+
+    if (!isAniVault && !isEmberFlat) {
+      showToast("Import failed: Unrecognised file format", "error");
       return;
     }
-    // Must have at least one numeric AniList ID key (excluding __meta)
-    const hasNumericKeys = Object.keys(data).some(k => k !== "__meta" && /^\d+$/.test(k));
-    if (!hasNumericKeys) {
-      showToast("Import failed: no valid library entries found", "error");
-      return;
+
+    let rawEntries = [];
+    let externalRatings = data.ratings || {};
+
+    if (isAniVault) {
+      // Flatten status arrays
+      rawEntries = Object.values(data.library).flat();
+    } else {
+      // Ember flat format
+      rawEntries = Object.values(data);
     }
-    // Extract __meta passthrough, get clean entries
-    const entries = extractMeta(data);
-    // Merge entries into userData (in memory)
-    const { added, updated, skipped } = mergeEntries(entries);
-    // Persist and refresh
+
+    const STATUS_MAP = {
+      "watching":    "watching",
+      "Watching":    "watching",
+      "completed":   "completed",
+      "Completed":   "completed",
+      "planToWatch": "plan-to-watch",
+      "Plan to Watch": "plan-to-watch",
+      "plan-to-watch": "plan-to-watch",
+      "queued":      "queued",
+      "Queued":      "queued",
+      "dropped":     "dropped",
+      "Dropped":     "dropped",
+      "paused":      "paused",
+      "Paused":      "paused",
+      "untracked":   "untracked",
+      "Untracked":   "untracked"
+    };
+
+    let added = 0;
+    let updated = 0;
+
+    rawEntries.forEach(entry => {
+      if (!entry.anilistId) return;
+      const id = String(entry.anilistId);
+      
+      // Map status
+      const emberStatus = STATUS_MAP[entry.status] || "untracked";
+      
+      // Get real rating from ratings object if it's AniVault format
+      const realRating = isAniVault ? (externalRatings[id] || 0) : (entry.rating || 0);
+
+      const mapped = {
+        id:              entry.id || entry.anilistId,
+        anilistId:       entry.anilistId,
+        title:           (entry.title && (entry.title.romaji || entry.title.english)) || entry.title || "",
+        titleEnglish:    (entry.title && entry.title.english) || entry.titleEnglish || "",
+        cover:           (entry.coverImage && entry.coverImage.large) || entry.cover || "",
+        banner:          entry.banner || "",
+        episodes:        entry.episodes || entry.totalEpisodes || 0,
+        episodesWatched: entry.episodesWatched || 0,
+        status:          emberStatus,
+        language:        entry.language || "sub",
+        rating:          realRating,
+        dateAdded:       entry.dateAdded || Date.now(),
+        lastWatched:     entry.lastWatched || 0,
+        completedAt:     entry.completedAt || 0,
+        notes:           entry.notes || "",
+        genres:          entry.genres || [],
+        year:            entry.year || entry.seasonYear || 0,
+        averageScore:    entry.averageScore || 0,
+      };
+
+      if (userData[id]) {
+        userData[id] = { ...userData[id], ...mapped };
+        updated++;
+      } else {
+        userData[id] = mapped;
+        added++;
+      }
+    });
+
     saveData();
     renderContent();
-    showToast(`Imported: ${added} added, ${updated} updated, ${skipped} skipped.`, "success");
+    showToast(`Imported ${rawEntries.length} entries — ${added} added, ${updated} updated`, "success");
   };
   reader.readAsText(file);
+}
+
+function generateExportFilename() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `anivault-backup-${yyyy}-${mm}-${dd}.json`;
+}
+
+function exportLibrary() {
+  const library = {
+    watching: [],
+    completed: [],
+    queued: [],
+    planToWatch: [],
+    dropped: [],
+    paused: [],
+    untracked: []
+  };
+  const ratings = {};
+
+  const STATUS_REVERSE = {
+    "watching":      "watching",
+    "completed":     "completed",
+    "plan-to-watch": "planToWatch",
+    "queued":        "queued",
+    "dropped":       "dropped",
+    "paused":        "paused",
+    "untracked":     "untracked"
+  };
+
+  const entries = Object.values(userData);
+  entries.forEach(entry => {
+    const avStatus = STATUS_REVERSE[entry.status] || "untracked";
+    const avEntry = {
+      id:              entry.id,
+      anilistId:       entry.anilistId,
+      title:           { romaji: entry.title || "", english: entry.titleEnglish || "" },
+      titleEnglish:    entry.titleEnglish || "",
+      cover:           entry.cover || "",
+      banner:          entry.banner || "",
+      episodes:        entry.episodes || 0,
+      episodesWatched: entry.episodesWatched || 0,
+      status:          avStatus,
+      language:        entry.language || "sub",
+      rating:          0, // Always 0 in entry, real rating in ratings object
+      dateAdded:       entry.dateAdded || 0,
+      lastWatched:     entry.lastWatched || 0,
+      completedAt:     entry.completedAt || 0,
+      notes:           entry.notes || "",
+      genres:          entry.genres || [],
+      year:            entry.year || 0,
+      sessionLog:      [],
+      averageScore:    entry.averageScore || 0
+    };
+
+    if (library[avStatus]) {
+      library[avStatus].push(avEntry);
+    } else {
+      library.untracked.push(avEntry);
+    }
+
+    if (entry.rating > 0) {
+      ratings[String(entry.anilistId)] = entry.rating;
+    }
+  });
+
+  const output = {
+    schemaVersion: 1,
+    exportedAt: new Date().toISOString(),
+    totalEntries: entries.length,
+    library,
+    ratings
+  };
+
+  const blob = new Blob([JSON.stringify(output, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = generateExportFilename();
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast("Library exported.", "success");
 }
 
 /* ══ SEASONAL ════════════════════════════════════════════════ */
@@ -559,7 +587,7 @@ function escapeHtml(s) {
   const d = document.createElement("div"); d.textContent = s; return d.innerHTML;
 }
 function getTitle(media) {
-  return media.title?.english || media.title?.romaji || media.title?.native || "Unknown";
+  return media.titleEnglish || media.title?.english || media.title?.romaji || media.title || media.title?.native || "Unknown Title";
 }
 function truncate(s, n) {
   return s && s.length > n ? s.slice(0, n) + "..." : s || "";
@@ -837,7 +865,7 @@ function renderContinueCard(entry) {
 }
 
 function getDisplayTitle(entry) {
-  return entry.titleEnglish || entry.title || "Unknown";
+  return getTitle(entry);
 }
 
 /* ══ STATS ═════════════════════════════════════════════════════ */
@@ -930,8 +958,8 @@ function computeStats() {
     }
   }
 
-  // Completion rate (started = watching + completed + dropped + paused)
-  const started        = entries.filter(e => ['watching','completed','dropped','paused'].includes(e.status)).length;
+  // Completion rate (started = any status except plan-to-watch)
+  const started        = entries.filter(e => e.status !== "plan-to-watch").length;
   const completedCount = statusCounts['completed'] || 0;
   const completionRate = started > 0 ? Math.round((completedCount / started) * 100) : 0;
 
@@ -1817,7 +1845,7 @@ function renderDetailOverlay(anime) {
       
       <div class="overlay-card__actions" style="margin-top:auto;display:flex;gap:var(--space-md)">
         <button class="btn btn--primary" data-action="open-watch" data-id="${anime.id}">Watch Now</button>
-        ${!existing ? `<button class="btn btn--glass" data-action="add-to-library" data-id="${anime.id}">+ Library</button>` : ""}
+        <button class="btn btn--glass" data-action="add-to-library" data-id="${anime.id}">${existing ? 'Update Status' : '+ Library'}</button>
         <button class="btn btn--glass" data-action="close-overlay">Close</button>
       </div>
     </div>
@@ -1827,10 +1855,49 @@ function renderDetailOverlay(anime) {
 function renderStatusPicker(id, currentStatus) {
   return `<div style="margin-top:var(--space-3)">
     <label style="font-size:12px;color:var(--text-2);display:block;margin-bottom:var(--space-1)">Status</label>
-    <select class="status-select" data-action="set-status" data-entry="${id}" style="background:var(--surface-md);color:var(--text1);border:1px solid var(--glass-border);border-radius:8px;padding:6px 10px;font-size:14px;width:100%;cursor:pointer">
-      ${STATUS_ORDER.map(s => `<option value="${s}" ${currentStatus === s ? 'selected' : ''}>${getStatusLabel(s)}</option>`).join('')}
-    </select>
+    <div style="display:flex;gap:var(--space-2);align-items:center">
+      <div class="status-badge" data-status="${currentStatus}">${getStatusLabel(currentStatus)}</div>
+      <button class="btn btn--sm btn--glass" data-action="open-status-picker" data-id="${id}">Change</button>
+    </div>
   </div>`;
+}
+
+function renderStatusPickerModal(id, currentStatus) {
+  const entry = getEntry(id);
+  const anime = anilistCache[id] || browseData.results.find(r => String(r.id) === String(id)) || searchResults.find(r => String(r.id) === String(id));
+  const title = getTitle(anime || entry);
+  const isUpdate = !!entry;
+
+  return `<div class="status-modal">
+    <div class="status-modal__title">${isUpdate ? 'Update Status' : 'Add to Library'}</div>
+    <div class="status-modal__subtitle">${escapeHtml(title)}</div>
+    <div class="status-options">
+      ${STATUS_ORDER.map(s => `
+        <label class="status-option ${currentStatus === s ? 'is-selected' : ''}">
+          <input type="radio" name="status-choice" value="${s}" ${currentStatus === s ? 'checked' : ''} onchange="this.parentElement.parentElement.querySelectorAll('.status-option').forEach(el=>el.classList.remove('is-selected'));this.parentElement.classList.add('is-selected')">
+          <span>${getStatusLabel(s)}</span>
+        </label>
+      `).join('')}
+    </div>
+    <div class="status-modal__actions">
+      <button class="btn btn--glass" data-action="close-status-picker">Cancel</button>
+      <button class="btn btn--primary" data-action="confirm-status" data-id="${id}">${isUpdate ? 'Update' : 'Add'}</button>
+    </div>
+  </div>`;
+}
+
+function openStatusPicker(id) {
+  const entry = getEntry(id);
+  const currentStatus = entry ? entry.status : "plan-to-watch";
+  const overlay = document.getElementById("statusPickerOverlay");
+  if (!overlay) return;
+  overlay.innerHTML = renderStatusPickerModal(id, currentStatus);
+  overlay.style.display = "flex";
+}
+
+function hideStatusPicker() {
+  const overlay = document.getElementById("statusPickerOverlay");
+  if (overlay) overlay.style.display = "none";
 }
 
 function renderRatingSection(id, currentRating) {
@@ -1869,25 +1936,40 @@ function setRating(id, stars) {
 }
 
 /* ══ ACTIONS ══════════════════════════════════════════════════ */
-function addToLibrary(anime) {
+function addToLibrary(anime, status = "plan-to-watch") {
   const id = String(anime.id);
-  if (userData[id]) { showToast("Already in library.", "error"); return; }
-  // Use the episode count from the anime object. For ongoing series where
-  // the API returns "?" or 0, store 0 here — openWatchView will attempt
-  // to resolve the real count via preloadEpisodeUrls before rendering.
-  userData[id] = {
-    id: anime.id, anilistId: anime.id,
-    title: getTitle(anime), titleEnglish: anime.title?.english || "",
-    cover: anime.coverImage?.large || "",
-    episodes: anime.episodes || 0, episodesWatched: 0,
-    status: "plan-to-watch", lastWatched: 0,
-    rating: 0, genres: anime.genres || [],
-    averageScore: anime.averageScore || 0,
-    notes: "", dateAdded: Date.now(),
+  const isUpdate = !!userData[id];
+  
+  const entryData = {
+    id:              anime.id,
+    anilistId:       anime.id,
+    title:           getTitle(anime),
+    titleEnglish:    anime.title?.english || anime.titleEnglish || "",
+    cover:           (anime.coverImage && anime.coverImage.large) || anime.cover || "",
+    banner:          anime.bannerImage || anime.banner || "",
+    episodes:        anime.episodes || 0,
+    episodesWatched: isUpdate ? userData[id].episodesWatched : 0,
+    status:          status,
+    language:        isUpdate ? userData[id].language : "sub",
+    rating:          isUpdate ? userData[id].rating : 0,
+    genres:          anime.genres || [],
+    averageScore:    anime.averageScore || 0,
+    notes:           isUpdate ? userData[id].notes : "",
+    dateAdded:       isUpdate ? userData[id].dateAdded : Date.now(),
+    lastWatched:     isUpdate ? userData[id].lastWatched : 0,
+    year:            anime.seasonYear || anime.year || 0
   };
+
+  userData[id] = entryData;
   saveData();
-  showToast(`Added "${getTitle(anime)}" to library.`, "success");
-  renderContent();
+  showToast(`${isUpdate ? 'Updated' : 'Added'} "${entryData.title}" in library as ${getStatusLabel(status)}.`, "success");
+  
+  // Refresh UI
+  const detailOverlay = document.getElementById("overlay");
+  if (detailOverlay && detailOverlay.style.display === "flex") {
+    showOverlay(renderDetailOverlay(anime));
+  }
+  if (currentTab === "library") renderContent();
 }
 
 async function openWatchView(id) {
@@ -2058,10 +2140,26 @@ document.addEventListener("click", e => {
 
   if (action === "close-overlay") { hideOverlay(); }
 
-  if (action === "add-to-library") {
+  if (action === "add-to-library" || action === "open-status-picker") {
     const id = target.dataset.id;
-    const anime = anilistCache[id] || browseData.results.find(r => String(r.id) === id) || searchResults.find(r => String(r.id) === id);
-    if (anime) { addToLibrary(anime); hideOverlay(); findAnikotoId(anime.id); }
+    openStatusPicker(id);
+  }
+
+  if (action === "close-status-picker") {
+    hideStatusPicker();
+  }
+
+  if (action === "confirm-status") {
+    const id = target.dataset.id;
+    const modal = target.closest(".status-modal");
+    const selected = modal.querySelector('input[name="status-choice"]:checked')?.value;
+    if (selected) {
+      const anime = anilistCache[id] || browseData.results.find(r => String(r.id) === id) || searchResults.find(r => String(r.id) === id) || getEntry(id);
+      if (anime) {
+        addToLibrary(anime, selected);
+        hideStatusPicker();
+      }
+    }
   }
 
   if (action === "open-watch") {
@@ -2241,10 +2339,23 @@ document.addEventListener("change", e => {
 /* ══ KEYBOARD ══════════════════════════════════════════════════ */
 document.addEventListener("keydown", e => {
   if (e.key === "Escape") {
+    const picker = document.getElementById("statusPickerOverlay");
+    if (picker?.style.display === "flex") { hideStatusPicker(); return; }
     const overlay = document.getElementById("overlay");
     if (overlay?.style.display === "flex") { hideOverlay(); return; }
     const modal = document.getElementById("shortcutsModal");
     if (modal?.classList.contains("is-open")) { toggleShortcuts(false); return; }
+  }
+
+  if (e.key === "Enter") {
+    const picker = document.getElementById("statusPickerOverlay");
+    if (picker?.style.display === "flex") {
+      const confirmBtn = picker.querySelector('[data-action="confirm-status"]');
+      if (confirmBtn) {
+        e.preventDefault();
+        confirmBtn.click();
+      }
+    }
   }
 
   if (e.key === "?" && !e.target.closest("input,textarea")) {

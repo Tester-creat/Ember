@@ -717,12 +717,13 @@ button:disabled {
   -webkit-backdrop-filter: var(--blur-sm);
 }
 
-/* AniVault interoperability — new status badges */
-[data-status="queued"]   .status-badge,
-.status-badge[data-status="queued"]   { background: rgba(245,158,11,0.18); color: #f59e0b; }
-
-[data-status="untracked"] .status-badge,
-.status-badge[data-status="untracked"] { background: var(--surface-md); color: var(--text3); }
+.status-badge[data-status="watching"] { background: rgba(59, 158, 255, 0.2); border-color: rgba(59, 158, 255, 0.4); color: #7dd3fc; }
+.status-badge[data-status="completed"] { background: rgba(34, 197, 94, 0.2); border-color: rgba(34, 197, 94, 0.4); color: #86efac; }
+.status-badge[data-status="plan-to-watch"] { background: rgba(167, 139, 250, 0.2); border-color: rgba(167, 139, 250, 0.4); color: #c4b5fd; }
+.status-badge[data-status="dropped"] { background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.4); color: #fca5a5; }
+.status-badge[data-status="paused"] { background: rgba(245, 158, 11, 0.2); border-color: rgba(245, 158, 11, 0.4); color: #fcd34d; }
+.status-badge[data-status="queued"] { background: rgba(99, 102, 241, 0.2); border-color: rgba(99, 102, 241, 0.5); color: #a5b4fc; }
+.status-badge[data-status="untracked"] { background: rgba(156, 163, 175, 0.15); border-color: rgba(156, 163, 175, 0.3); color: #d1d5db; }
 
 /* Progress bar on continue cards */
 .progress, .watch-progress, .card-progress {
@@ -2404,4 +2405,74 @@ body::before {
   font-weight: 600;
   color: #22c55e;
   margin-top: auto;
+}
+
+/* ══ STATUS PICKER MODAL ════════════════════════════════════════ */
+.status-modal {
+  background: var(--bg2);
+  border: 1px solid var(--border-md);
+  border-radius: var(--r-lg);
+  padding: var(--sp-6);
+  max-width: 380px;
+  width: 100%;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+  animation: scaleModal var(--dur-slow) var(--ease-spring);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+}
+
+.status-modal__title {
+  font-size: var(--t-xl);
+  font-weight: 800;
+  color: var(--text1);
+  margin-bottom: var(--sp-1);
+}
+
+.status-modal__subtitle {
+  font-size: var(--t-sm);
+  color: var(--text2);
+  margin-bottom: var(--sp-5);
+}
+
+.status-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-6);
+}
+
+.status-option {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  cursor: pointer;
+  transition: all var(--dur-fast);
+}
+
+.status-option:hover {
+  background: var(--surface-md);
+  border-color: var(--border-md);
+}
+
+.status-option.is-selected {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent-hi);
+}
+
+.status-option input {
+  display: none;
+}
+
+.status-modal__actions {
+  display: flex;
+  gap: var(--sp-3);
+}
+
+.status-modal__actions button {
+  flex: 1;
 }
