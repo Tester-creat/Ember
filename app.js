@@ -475,11 +475,11 @@ async function loadSeasonal(season, year, page = 1) {
     `;
     const data = await anilistFetch(query, { season, year, page });
     const raw = data || [];
-    seasonalData._hasMore = false; // Page info not easily available in current anilistFetch wrap
+    seasonalData._hasMore = false; 
     
     const normalized = raw.map(normalizeAnime);
     seasonalData.results = page === 1 ? normalized : [...seasonalData.results, ...normalized];
-    normalized.forEach(a => { anilistCache[a.id] = a; });
+    normalized.forEach(a => { if (a?.id) anilistCache[a.id] = a; });
     seasonalData.page = page;
   } catch (e) {
     seasonalData.error = e.message;
@@ -701,12 +701,22 @@ function _paintWatchOrder(mount, anilistId, relations) {
     return;
   }
 
-  // Sort: Prequel → Sequel → Side Story → Other
+  // Sort primarily by release year/date for canonical order
   const sorted = [...relations].sort((a, b) => {
+    // 1. Sort by year
+    const ya = a.seasonYear || (a.startDate?.year) || 0;
+    const yb = b.seasonYear || (b.startDate?.year) || 0;
+    if (ya !== yb) return ya - yb;
+
+    // 2. Sort by month if same year
+    const ma = a.startDate?.month || 0;
+    const mb = b.startDate?.month || 0;
+    if (ma !== mb) return ma - mb;
+
+    // 3. Fallback to priority for relations in same timeframe
     const pa = RELATION_PRIORITY[a.relationType] || 99;
     const pb = RELATION_PRIORITY[b.relationType] || 99;
-    if (pa !== pb) return pa - pb;
-    return (a.seasonYear || 0) - (b.seasonYear || 0);
+    return pa - pb;
   });
 
   const cards = sorted.map(item => {
@@ -1959,32 +1969,36 @@ function addToLibrary(anime, status = "plan-to-watch") {
 async function openWatchView(id) {
   const entry = getEntry(id);
   if (!entry) { showToast("Title not found.", "error"); return; }
+
+  // Instant UI Feedback: Switch tab first
   currentWatchId = id;
+  currentTab = "watch";
   currentProvider = 0;
-  currentEpisodeGroup = 0;   // Feature 1: reset group to start for new title
+  currentEpisodeGroup = 0;
   currentLanguage = entry.language || "sub";
+  
+  // Optimistic status update
   entry.status = "watching";
   entry.lastWatched = Date.now();
   saveData();
-
-  // Resolve the real episode count before rendering. This updates
-  // entry.episodes in-place if Anikoto or the AniList cache has a better value.
-  await preloadEpisodeUrls(entry.anilistId);
-
-  // Use the now-resolved episode count. Fall back to a large sentinel (9999)
-  // for ongoing series where the count is still unknown — this ensures the
-  // episode list and Next button are never artificially capped at 1.
-  const knownTotal = entry.episodes || 9999;
-
-  // Start on the next unwatched episode, clamped to the known total.
-  currentEpisode = Math.min((entry.episodesWatched || 0) + 1, knownTotal);
-
-  currentTab = "watch";
-  const hero = document.getElementById("hero");
-  const app = document.getElementById("app");
-  if (hero) hero.style.display = "none";
-  if (app) app.style.paddingTop = "calc(var(--nav-height) + 16px)";
+  
   renderContent();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  // Resolve episode metadata in background
+  try {
+    await preloadEpisodeUrls(entry.anilistId);
+    
+    const knownTotal = entry.episodes || 9999;
+    currentEpisode = Math.min((entry.episodesWatched || 0) + 1, knownTotal);
+    
+    // Final render with updated episode data
+    renderContent();
+  } catch (e) {
+    console.error("openWatchView preflight failed:", e);
+    // Even if preflight fails, we can still try to render the player
+    renderContent();
+  }
 }
 
 function markEpisodeWatched(id) {

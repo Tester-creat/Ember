@@ -1728,9 +1728,9 @@ body::before {
 /* Hero summary cards */
 .sstat-hero-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: var(--sp-3);
-  margin-bottom: var(--sp-5);
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-6);
 }
 
 .sstat-hero-card {
@@ -1769,8 +1769,11 @@ body::before {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
-  padding: var(--sp-5);
+  padding: var(--sp-6);
   margin-bottom: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
 .sstats-card__title {
@@ -1794,15 +1797,12 @@ body::before {
 
 .sstats-row--2col {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
   gap: var(--sp-4);
+  align-items: stretch;
 }
 
-.sstats-row--2col .sstats-card {
-  margin-bottom: 0;
-}
-
-@media (max-width: 767px) {
+@media (max-width: 480px) {
   .sstats-row--2col { grid-template-columns: 1fr; }
 }
 
@@ -1928,7 +1928,7 @@ body::before {
 }
 
 .sgenre-bar-name {
-  width: 100px;
+  width: 120px;
   font-size: var(--t-xs);
   color: var(--text2);
   text-align: right;

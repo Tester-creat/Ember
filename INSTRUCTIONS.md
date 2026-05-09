@@ -1,143 +1,189 @@
-#### **🧑 \[P\] Persona**
+You are a senior frontend engineer and UI/UX optimization specialist working on a high-performance anime streaming platform inspired by Netflix and modern streaming interfaces.
 
-You are a **senior vanilla JavaScript developer** with expertise in DOM focus management, event delegation, and SPA navigation patterns. You are precise about eliminating duplicate input sources and you understand that programmatic `.focus()` calls must happen **after** the DOM has been updated — never before.
+Your task is to investigate, refactor, and optimize the following issues across the application. Focus on clean architecture, responsive UI consistency, smooth UX transitions, and performance optimization. Do not apply quick patches — properly diagnose root causes and implement scalable fixes.
 
----
+## **1\. Stats Tab Layout & Distribution Issues**
 
-#### **🎯 \[T\] Task**
+In the Stats tab, specifically the section titled:
 
-Fix a critical search UX bug in the **Ember project** (`https://github.com/Tester-creat/Ember`) where two search inputs exist simultaneously, causing focus loss, character reordering, and persistent stale text.
+"A deep dive into your watching history and habits"
 
-The fix has **four precise steps** — all must be done together, as they are one atomic change:
+there are multiple UI inconsistencies:
 
----
+* Elements are misaligned  
+* Some cards/components are disproportionately sized  
+* Spacing and layout distribution feel uneven  
+* The grid responsiveness breaks visual balance
 
-**Step 1 — Remove the navbar search input from `index.html`**
+### **Requirements**
 
-Locate the `.nav__search` div in `index.html`:
+* Evenly distribute all cards/elements  
+* Ensure consistent sizing, spacing, and alignment  
+* Maintain responsiveness across desktop/tablet/mobile  
+* Use adaptive grid/flex layouts where appropriate  
+* Prevent overflow, stretching, or collapsed cards  
+* Ensure typography, charts, and stat blocks visually align
 
-html  
-\<div class\="nav\_\_search" id\="navSearch"\>  
-  \<svg class\="nav\_\_search-icon" ...\>\</svg\>  
-  \<input type\="search" id\="globalSearch" class\="search-input" placeholder\="Search..." ...\>  
-\</div\>
+Additionally:
 
-Replace it with a plain icon-only button that navigates to the search tab on click:
+* Audit ALL other tabs/pages/components for similar layout inconsistencies  
+* Standardize spacing, padding, margins, and card proportions across the platform  
+* Ensure a cohesive streaming-platform-quality UI throughout
 
-html  
-\<button class\="nav\_\_search-icon-btn" id\="navSearchBtn" data-tab\="search" data-action\="tab" aria-label\="Search"\>  
-  \<svg class\="nav\_\_search-icon" viewBox\="0 0 24 24" fill\="none" stroke\="currentColor" stroke-width\="2"\>  
-    \<circle cx\="11" cy\="11" r\="8"/\>\<path d\="m21 21-4.35-4.35"/\>  
-  \</svg\>  
-\</button\>
+### **Expected Improvements**
 
-* No `<input>` in the navbar. Ever. The icon is the entire affordance.  
-* The `data-tab="search"` and `data-action="tab"` attributes mean Ember's existing click delegation handles the navigation — no new JS needed for the click itself
-
----
-
-**Step 2 — Remove all `#globalSearch` input event listeners from `app.js`**
-
-Find every event listener, handler, or reference in `app.js` tied to `#globalSearch` — this includes:
-
-* Any `input`, `keyup`, `keydown`, or `change` listener on `#globalSearch`  
-* Any debounced search function triggered by `#globalSearch` value changes  
-* Any code that reads `document.getElementById('globalSearch').value` and uses it to seed the search tab's input or trigger a search  
-* Any code that sets `#globalSearch.value` from `uiState`
-
-**Remove all of these entirely.** The navbar input is gone — none of this logic should survive.
+* Symmetrical layouts  
+* Consistent card heights  
+* Balanced spacing  
+* Proper responsive behavior  
+* Cleaner visual hierarchy  
+* Professional dashboard appearance
 
 ---
 
-**Step 3 — Auto-focus the content search input after the search tab renders**
+## **2\. Watch Order Section Sorting Logic**
 
-In `app.js`, find where the search tab content is rendered (the function that generates the full-width search input in `#content` — likely inside `renderSearch()` or the `case 'search':` branch of the tab renderer).
+During anime watching, the "Watch Order" section currently does not reliably arrange entries in chronological/release order.
 
-After the search tab's HTML is injected into `#content`, add a programmatic focus call using `requestAnimationFrame` to guarantee the DOM has painted before focus is attempted:
+### **Requirements**
 
-javascript  
-requestAnimationFrame(() \=\> {  
-  const searchInput \= document.getElementById('contentSearch'); // confirm actual ID  
-  if (searchInput) {  
-    searchInput.focus();  
-    // If navigating from the navbar button, the input value should be empty  
-    // Do NOT seed it with any value from the old \#globalSearch  
-  }  
-});
+If anime titles are present:
 
-* This must fire **every time** the search tab is activated — whether from the navbar button, the mobile bar Search tab, or any `data-tab="search"` trigger anywhere in the app  
-* The content search input must start **empty** on every fresh navigation to the search tab — do not preserve or transfer any previous value unless Ember already has intentional search-query persistence in `uiState` (if so, preserve that behaviour but confirm it is intentional)
+* Automatically sort entries by:  
+  1. Canonical release date  
+  2. Season order  
+  3. Movie/special chronology where applicable  
+* Ensure sequels/prequels appear correctly  
+* Prevent random or API-return-order rendering  
+* Add stable sorting behavior  
+* Gracefully handle missing metadata
 
----
+### **Expected Behavior**
 
-**Step 4 — Clean up `uiState` and `styles.css`**
+Examples:
 
-* In `app.js`: if `uiState` has a `searchQuery` or similar property that was being synced to/from `#globalSearch`, confirm whether it is still needed. If it only existed to bridge the two inputs, remove it. If it drives the actual search results in the content area, keep it but ensure it is only ever written to by the content search input — never by the removed navbar input.  
-* In `styles.css`: remove or repurpose any styles scoped to `.nav__search input`, `#globalSearch`, or `.search-input` inside the nav context. The `.nav__search` container styles can be replaced with simple icon-button styles (see Format section below).  
-* The `#mobileSearchBtn` (the separate mobile search toggle button already in `index.html`) — confirm whether it duplicates the mobile bar's Search tab button. If it does, remove it; if it serves a distinct purpose (e.g. toggling a mobile search overlay), leave it untouched but ensure it also does not reference `#globalSearch`.
+* Season 1 → Season 2 → Movie → OVA → Season 3  
+* Earlier release years should appear first  
+* Specials/OVAs should not interrupt main chronology unless intended
 
 ---
 
-#### **🗂️ \[C\] Context**
+## **3\. Seasonal Tab Runtime Error**
 
-**Ember's current search architecture (the broken state):**
+The Seasonal tab was previously fixed but is now broken again.
 
-* `index.html` has `<input id="globalSearch">` inside `.nav__search` in the navbar  
-* `app.js` listens to this input, and on any keystroke switches to the search tab and triggers content rendering  
-* The search tab renders a second, full-width input in `#content` for the actual search experience  
-* The first keystroke in the navbar input triggers tab switch → focus is lost from navbar input → second input appears without programmatic focus → user continues typing into second input without `S` from first input being properly transferred → character order corruption results  
-* The navbar input retains the first character typed, is never cleared, and is never properly synced
+### **Current Error**
 
-**Ember's tab system:**
+Cannot read properties of undefined (reading 'Page')
 
-* Tab navigation is driven by `data-action="tab"` and `data-tab="..."` attributes via click delegation in `app.js`  
-* Switching tabs calls `renderApp()` which rebuilds `#content`  
-* After `renderApp()`, an `afterRender()` hook runs — this is the correct place to call `.focus()` on the content search input when `uiState.activeTab === 'search'`
+### **Investigation Requirements**
 
-**Ember's stack:** Vanilla JS \+ HTML \+ CSS — no frameworks, no build step
+* Identify the exact source of the undefined object  
+* Trace where `.Page` is being accessed  
+* Check:  
+  * API response structure changes  
+  * Optional chaining issues  
+  * Null/undefined state handling  
+  * Async race conditions  
+  * Incorrect destructuring  
+  * Pagination/state initialization problems
 
-**Do not:**
+### **Requirements**
 
-* Add a new search input anywhere in the navbar — one input, in `#content` only  
-* Call `.focus()` synchronously immediately after `innerHTML` assignment — always use `requestAnimationFrame`  
-* Seed the content search input with any value from the removed navbar input  
-* Touch the search results rendering logic, debounce timing, or AniList API call — only the input source and focus behaviour change  
-* Remove the mobile bar's Search tab button (`data-tab="search"` in `#mobileTabs`) — that is correct and must stay
+* Properly guard all nested property access  
+* Add safe fallbacks/loading states  
+* Ensure the seasonal tab never crashes even if API data is incomplete  
+* Refactor fragile logic if necessary  
+* Improve overall resilience of the tab
+
+### **Deliverables**
+
+* Root cause explanation  
+* Refactored stable implementation  
+* Error-proof rendering flow
 
 ---
 
-#### **📋 \[F\] Format**
+## **4\. Anime Playback Startup Performance Issue**
 
-Deliver in this exact structure:
+There is a major UX/performance issue when selecting an anime to watch.
 
-**1\. Pre-flight Audit**
+### **Current Problem**
 
-* List every reference to `#globalSearch` or `globalSearch` in `app.js` — event listeners, value reads, value writes, uiState sync  
-* Confirm the exact ID of the content-area search input (the full-width one rendered inside `#content`)  
-* Confirm whether `afterRender()` exists and whether it already handles focus restoration for other inputs — if so, add the search focus logic there consistently  
-* Confirm whether `#mobileSearchBtn` is redundant with the mobile bar Search tab or serves a distinct purpose
+After clicking an anime card:
 
-**2\. `index.html` changes**
+* The app feels unresponsive  
+* Playback takes too long to begin  
+* Users may think the click failed  
+* The site feels sluggish or broken
 
-* Exact before/after for the `.nav__search` block replacement  
-* Confirm no other `<input>` or reference to `#globalSearch` remains in `index.html`
+### **Investigation Requirements**
 
-**3\. `app.js` changes**
+Perform a full performance audit of the watch/startup flow:
 
-* Complete list of removed event listeners and handlers (with the code shown so the removal is auditable)  
-* The `requestAnimationFrame` focus call — exactly where it is inserted (inside `afterRender()` or equivalent, gated on `uiState.activeTab === 'search'`)  
-* Any `uiState` property cleanup
+* Route transition delays  
+* API fetch bottlenecks  
+* Video/player initialization delays  
+* Large component re-renders  
+* Excessive state updates  
+* Blocking async operations  
+* Image/video preloading inefficiencies  
+* Lazy loading behavior  
+* Suspense/loading boundaries  
+* Network waterfall issues  
+* Client-side hydration/render bottlenecks
 
-**4\. `styles.css` changes**
+### **Optimization Goals**
 
-* Remove: styles for `#globalSearch` and `.nav__search input` in the nav context  
-* Add: `.nav__search-icon-btn` — a clean icon button style matching the nav's existing icon button pattern (no background, no border, correct sizing, hover opacity transition using Ember's design tokens)
+* Immediate visual feedback after click  
+* Faster perceived responsiveness  
+* Smooth transitions into playback  
+* Reduced loading latency  
+* Eliminate UI freezing/stalling
 
-**5\. Verification Checklist**
+### **Required UX Improvements**
 
-* Click search icon in desktop navbar → search tab opens → content search input is focused immediately → typing `SOLO` produces `SOLO` in the content input, in order  
-* No text remains in any navbar input after navigating to search (there is no navbar input)  
-* Navigate away from search tab and back → content input is focused again, starts empty  
-* Mobile bar Search tab button still works and also focuses the content input on arrival  
-* All other tabs (Home, Browse, Seasonal, Library, Stats) are completely unaffected
+Implement modern streaming-platform behavior such as:
+
+* Instant loading overlay/skeleton state  
+* Optimistic UI transitions  
+* Prefetching anime/player data on hover  
+* Route preloading  
+* Smarter caching  
+* Deferred non-critical rendering  
+* Video/player lazy initialization  
+* Progressive loading strategies
+
+### **Expected Outcome**
+
+The platform should feel:
+
+* Fast  
+* Responsive  
+* Premium  
+* Smooth like Netflix/Crunchyroll-style interfaces
+
+---
+
+## **Technical Expectations**
+
+While implementing fixes:
+
+* Preserve existing design language  
+* Avoid breaking current features  
+* Refactor duplicated layout logic where necessary  
+* Improve maintainability and scalability  
+* Use performant rendering patterns  
+* Keep animations smooth and GPU-friendly  
+* Minimize unnecessary re-renders  
+* Ensure TypeScript safety/null safety if applicable  
+* Add comments where logic is complex
+
+Before finalizing:
+
+1. Audit related components for similar hidden issues  
+2. Test responsiveness across screen sizes  
+3. Test edge cases and undefined API states  
+4. Verify no regressions were introduced  
+5. Ensure all fixes are production-ready
 
