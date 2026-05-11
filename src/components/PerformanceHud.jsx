@@ -7,6 +7,8 @@ export default function PerformanceHud() {
   const ref = useRef(null);
 
   useEffect(() => {
+    if (!import.meta.env.DEV) return undefined;
+
     const el = ref.current;
     if (!el) return;
 
@@ -51,6 +53,10 @@ export default function PerformanceHud() {
       obs?.disconnect();
     };
   }, []);
+
+  if (!import.meta.env.DEV) {
+    return null;
+  }
 
   return (
     <div

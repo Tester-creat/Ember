@@ -1,8 +1,7 @@
-
-import { useState, useEffect, useRef, useMemo } from 'react';
-import { useAnimeData } from '../hooks/useAnimeData';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimeCard } from '../components/AnimeRows';
-import { LIBRARY_FILTER_STATUSES, getStatusLabel } from '../utils/animeUtils';
+import { useAnimeData } from '../hooks/useAnimeData';
+import { getStatusLabel, LIBRARY_FILTER_STATUSES } from '../utils/animeUtils';
 import { LIBRARY_WATCHING_ROW_MAX } from '../utils/renderBudgets';
 
 const BATCH_SIZE = 24;
@@ -17,20 +16,23 @@ function LibraryInner({ onOpenDetail }) {
   const [visibleCount, setVisibleCount] = useState(BATCH_SIZE);
   const observerTarget = useRef(null);
 
-  const entries = useMemo(() => Object.values(userData).filter((e) => e && e.id), [userData]);
+  const entries = useMemo(
+    () => Object.values(userData).filter((entry) => entry && entry.id),
+    [userData]
+  );
 
   const statusCounts = useMemo(() => {
-    const m = {};
-    for (const e of entries) {
-      const s = e.status;
-      if (s) m[s] = (m[s] || 0) + 1;
+    const counts = {};
+    for (const entry of entries) {
+      if (!entry.status) continue;
+      counts[entry.status] = (counts[entry.status] || 0) + 1;
     }
-    return m;
+    return counts;
   }, [entries]);
 
   const filtered = useMemo(() => {
     const items =
-      libraryFilter === 'all' ? entries : entries.filter((e) => e.status === libraryFilter);
+      libraryFilter === 'all' ? entries : entries.filter((entry) => entry.status === libraryFilter);
 
     if (libraryFilter === 'watching') {
       return [...items].sort((a, b) => (b.lastWatched || 0) - (a.lastWatched || 0));
@@ -43,53 +45,57 @@ function LibraryInner({ onOpenDetail }) {
 
   const groups = useMemo(() => {
     if (libraryFilter !== 'all') return [];
-    return LIBRARY_FILTER_STATUSES.filter((s) => s !== 'all')
-      .map((s) => {
-        let items = entries.filter((e) => e.status === s);
-        if (s === 'watching') {
+
+    return LIBRARY_FILTER_STATUSES.filter((status) => status !== 'all')
+      .map((status) => {
+        let items = entries.filter((entry) => entry.status === status);
+        if (status === 'watching') {
           items = items.sort((a, b) => (b.lastWatched || 0) - (a.lastWatched || 0));
-        } else if (s === 'completed') {
+        } else if (status === 'completed') {
           items = items.sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
         }
-        return { status: s, label: getStatusLabel(s), items };
+        return { status, label: getStatusLabel(status), items };
       })
-      .filter((g) => g.items.length > 0);
+      .filter((group) => group.items.length > 0);
   }, [entries, libraryFilter]);
 
   const completedCountInAll = useMemo(() => {
-    const g = groups.find((x) => x.status === 'completed');
-    return g ? g.items.length : 0;
+    const completed = groups.find((group) => group.status === 'completed');
+    return completed ? completed.items.length : 0;
   }, [groups]);
 
   const showLoadMoreSentinel =
     libraryFilter === 'all' ? completedCountInAll > visibleCount : filtered.length > visibleCount;
 
   useEffect(() => {
-    const el = observerTarget.current;
-    if (!el) return;
+    const element = observerTarget.current;
+    if (!element) return undefined;
 
     const observer = new IntersectionObserver(
-      (obsEntries) => {
-        if (obsEntries[0]?.isIntersecting) {
+      (observedEntries) => {
+        if (observedEntries[0]?.isIntersecting) {
           setVisibleCount((prev) => prev + BATCH_SIZE);
         }
       },
       { threshold: 0.1, rootMargin: '200px' }
     );
 
-    observer.observe(el);
+    observer.observe(element);
     return () => observer.disconnect();
-  }, [showLoadMoreSentinel, libraryFilter]);
+  }, [libraryFilter, showLoadMoreSentinel]);
 
   return (
     <div className="section page-inner">
       <div className="section__head">
-        <div className="section__title">My Library</div>
+        <div>
+          <div className="section__eyebrow">Tracked collection</div>
+          <div className="section__title">My Library</div>
+        </div>
         <div className="section__actions">
-          <button type="button" className="btn btn--glass btn--sm">
+          <button type="button" className="btn btn--glass btn--sm" disabled>
             Export
           </button>
-          <button type="button" className="btn btn--glass btn--sm">
+          <button type="button" className="btn btn--glass btn--sm" disabled>
             Import
           </button>
         </div>
@@ -98,8 +104,9 @@ function LibraryInner({ onOpenDetail }) {
       <div className="filter-bar">
         {LIBRARY_FILTER_STATUSES.map((status) => {
           const count = status === 'all' ? entries.length : statusCounts[status] || 0;
-          if (count === 0 && !['all', 'watching', 'plan-to-watch', 'completed'].includes(status))
+          if (count === 0 && !['all', 'watching', 'plan-to-watch', 'completed'].includes(status)) {
             return null;
+          }
 
           return (
             <button
@@ -118,10 +125,10 @@ function LibraryInner({ onOpenDetail }) {
       <div
         className="library-content"
         style={{
-          marginTop: 'var(--sp-6)',
+          marginTop: 'var(--space-6)',
           display: 'flex',
           flexDirection: 'column',
-          gap: 'var(--sp-8)',
+          gap: 'var(--space-8)',
         }}
       >
         {libraryFilter === 'all' ? (
@@ -135,23 +142,13 @@ function LibraryInner({ onOpenDetail }) {
 
             return (
               <div key={group.status} className="library-group">
-                <h3
-                  className="library-group__title"
-                  style={{
-                    fontSize: 'var(--t-lg)',
-                    fontWeight: '700',
-                    marginBottom: 'var(--sp-4)',
-                    color: 'var(--text1)',
-                  }}
-                >
-                  {group.label}
-                </h3>
+                <h3 className="library-group__title">{group.label}</h3>
                 {group.status === 'watching' ? (
                   <>
                     <div className="media-row">
                       <div
                         className="media-row__viewport"
-                        style={{ overflowX: 'auto', paddingBottom: 'var(--sp-4)' }}
+                        style={{ overflowX: 'auto', paddingBottom: 'var(--space-4)' }}
                       >
                         <div className="media-row__track">
                           {watchingShown.map((entry) => (
@@ -160,12 +157,12 @@ function LibraryInner({ onOpenDetail }) {
                         </div>
                       </div>
                     </div>
-                    {watchingOverflow && (
+                    {watchingOverflow ? (
                       <p className="library-row-hint">
-                        Showing top {LIBRARY_WATCHING_ROW_MAX} by recency — open{' '}
+                        Showing top {LIBRARY_WATCHING_ROW_MAX} by recency. Open{' '}
                         <strong>Watching</strong> to see the full list.
                       </p>
-                    )}
+                    ) : null}
                   </>
                 ) : (
                   <div className="media-grid">
@@ -187,17 +184,17 @@ function LibraryInner({ onOpenDetail }) {
           </div>
         )}
 
-        {showLoadMoreSentinel && (
+        {showLoadMoreSentinel ? (
           <div ref={observerTarget} style={{ height: '20px', margin: '20px 0' }} />
-        )}
+        ) : null}
 
-        {entries.length === 0 && (
+        {entries.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-state__icon">📚</div>
+            <div className="empty-state__icon">Library</div>
             <div className="empty-state__title">Library is empty</div>
-            <p>Start browsing to add your favorite anime!</p>
+            <p>Start browsing to add your favorite anime.</p>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

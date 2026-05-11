@@ -1,36 +1,33 @@
-
-import { useEffect, useRef, useMemo, useState, memo } from 'react';
-import { getTitle, getCoverSrc, getStatusLabel } from '../utils/animeUtils';
+import { memo, useEffect, useMemo, useRef } from 'react';
+import CoverArt from './CoverArt';
+import { getStatusLabel, getTitle } from '../utils/animeUtils';
 import { MARQUEE_MAX_ITEMS } from '../utils/renderBudgets';
 
 export const AnimeCard = memo(function AnimeCard({ anime, entry, onOpenDetail }) {
   const data = anime || entry;
   const title = getTitle(data);
-  const cover = getCoverSrc(data);
   const score = data?.averageScore;
   const status = entry?.status;
-  const [imgError, setImgError] = useState(false);
+  const meta = [data?.year, data?.format].filter(Boolean).join(' / ');
 
   return (
-    <div className="anime-card" onClick={() => onOpenDetail(data)}>
+    <button type="button" className="anime-card" onClick={() => onOpenDetail(data)}>
       <div className="anime-card__media">
-        {cover && !imgError ? (
-          <img src={cover} alt="" loading="lazy" decoding="async" className="anime-card__img" onError={() => setImgError(true)} />
-        ) : (
-          <div className="anime-card__ph">{title.charAt(0)}</div>
-        )}
+        <CoverArt anime={data} className="cover-media anime-card__cover" imgClassName="anime-card__img" />
         <div className="anime-card__overlay">
-          <div className="anime-card__score">★ {score ? (score / 10).toFixed(1) : '?.?'}</div>
-          {status && <div className="status-badge" data-status={status}>{getStatusLabel(status)}</div>}
+          <div className="anime-card__score">{score ? `${(score / 10).toFixed(1)} score` : 'Unrated'}</div>
+          {status ? (
+            <div className="status-badge" data-status={status}>
+              {getStatusLabel(status)}
+            </div>
+          ) : null}
         </div>
       </div>
       <div className="anime-card__body">
         <div className="anime-card__title">{title}</div>
-        <div className="anime-card__meta">
-          {data?.year || ''} · {data?.format || ''}
-        </div>
+        {meta ? <div className="anime-card__meta">{meta}</div> : null}
       </div>
-    </div>
+    </button>
   );
 });
 
@@ -42,16 +39,16 @@ function MarqueeTrack({ cappedItems, reverse, onOpenDetail, trackRef }) {
           ref={trackRef}
           className={`media-row__track marquee-track ${reverse ? 'marquee-track--reverse' : ''}`}
         >
-          {cappedItems.map((item, i) => (
+          {cappedItems.map((item, index) => (
             <AnimeCard
-              key={`m-a-${String(item?.id ?? item?.anilistId ?? i)}`}
+              key={`m-a-${String(item?.id ?? item?.anilistId ?? index)}`}
               anime={item}
               onOpenDetail={onOpenDetail}
             />
           ))}
-          {cappedItems.map((item, i) => (
+          {cappedItems.map((item, index) => (
             <AnimeCard
-              key={`m-b-${String(item?.id ?? item?.anilistId ?? i)}`}
+              key={`m-b-${String(item?.id ?? item?.anilistId ?? index)}`}
               anime={item}
               onOpenDetail={onOpenDetail}
             />
@@ -72,18 +69,18 @@ export const MarqueeRow = memo(function MarqueeRow({
 }) {
   const trackRef = useRef(null);
   const cappedItems = useMemo(() => {
-    const arr = items ?? [];
-    if (arr.length === 0) return [];
-    return arr.length > maxItems ? arr.slice(0, maxItems) : arr;
+    const list = items ?? [];
+    if (list.length === 0) return [];
+    return list.length > maxItems ? list.slice(0, maxItems) : list;
   }, [items, maxItems]);
 
   const layoutKey = useMemo(
-    () => cappedItems.map((i) => String(i?.id ?? i?.anilistId ?? '')).join('|'),
+    () => cappedItems.map((item) => String(item?.id ?? item?.anilistId ?? '')).join('|'),
     [cappedItems]
   );
 
   useEffect(() => {
-    if (!trackRef.current || cappedItems.length === 0) return;
+    if (!trackRef.current || cappedItems.length === 0) return undefined;
 
     const track = trackRef.current;
 
@@ -91,15 +88,14 @@ export const MarqueeRow = memo(function MarqueeRow({
       const childCount = track.children.length / 2;
       if (childCount === 0) return;
 
-      const gap = parseFloat(getComputedStyle(track).gap) || 12;
+      const gap = parseFloat(getComputedStyle(track).gap) || 16;
       const firstChild = track.children[0];
-      const childWidth = firstChild?.getBoundingClientRect().width || 180;
+      const childWidth = firstChild?.getBoundingClientRect().width || 220;
       const copyWidthPx = childCount * childWidth + childCount * gap;
+      const speed = 56;
+      const duration = Math.max(copyWidthPx / speed, 18);
 
-      const speed = 60;
-      const dur = Math.max(copyWidthPx / speed, 15);
-
-      track.style.setProperty('--marquee-dur', `${dur}s`);
+      track.style.setProperty('--marquee-dur', `${duration}s`);
       track.style.setProperty('--marquee-translate', `-${copyWidthPx}px`);
     };
 
@@ -108,29 +104,33 @@ export const MarqueeRow = memo(function MarqueeRow({
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(updateMarquee);
     };
+
     scheduleMeasure();
 
-    const ro = typeof ResizeObserver !== 'undefined'
-      ? new ResizeObserver(() => {
-          scheduleMeasure();
-        })
-      : null;
-    ro?.observe(track);
+    const observer =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => {
+            scheduleMeasure();
+          })
+        : null;
+
+    observer?.observe(track);
 
     let resizeTimer;
-    const onResize = () => {
+    const handleResize = () => {
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(scheduleMeasure, 150);
     };
 
-    window.addEventListener('resize', onResize, { passive: true });
+    window.addEventListener('resize', handleResize, { passive: true });
+
     return () => {
       cancelAnimationFrame(raf);
-      ro?.disconnect();
-      window.removeEventListener('resize', onResize);
+      observer?.disconnect();
+      window.removeEventListener('resize', handleResize);
       clearTimeout(resizeTimer);
     };
-  }, [layoutKey, reverse, cappedItems.length]);
+  }, [cappedItems.length, layoutKey, reverse]);
 
   if (cappedItems.length === 0) return null;
 

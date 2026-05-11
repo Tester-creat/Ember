@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- context + hook pair */
 import { createContext, useContext, useState, useCallback } from 'react';
+import { normalizeAnime } from '../utils/animeUtils';
 
 
 const AnimeContext = createContext();
@@ -15,6 +16,7 @@ function readStoredUserData() {
 export function AnimeProvider({ children }) {
   const [userData, setUserData] = useState(readStoredUserData);
   const [anilistCache, setAnilistCache] = useState({});
+  const [homeTrending, setHomeTrending] = useState({ results: [], loading: false, error: null, page: 0, hasMore: true });
   const [currentTab, setCurrentTab] = useState("home");
   const [libraryFilter, setLibraryFilter] = useState("all");
   
@@ -47,30 +49,31 @@ export function AnimeProvider({ children }) {
   }, [userData, saveData]);
 
   const addToLibrary = useCallback((anime, status = "untracked") => {
-    const id = String(anime.id || anime.anilistId);
+    const source = normalizeAnime(anime) || anime;
+    const id = String(source.id || source.anilistId);
     const existing = userData[id];
     const isUpdate = !!existing;
 
     const entryData = {
       id:              id,
       anilistId:       Number(id),
-      title:           anime.title || "",
-      titleEnglish:    anime.titleEnglish || "",
-      cover:           anime.cover || "",
-      banner:          anime.banner || "",
-      episodes:        anime.episodes || 0,
+      title:           source.title || "",
+      titleEnglish:    source.titleEnglish || "",
+      cover:           source.cover || "",
+      banner:          source.banner || "",
+      episodes:        source.episodes || 0,
       episodesWatched: isUpdate ? existing.episodesWatched : 0,
       status:          status,
       language:        isUpdate ? existing.language : "sub",
       rating:          isUpdate ? existing.rating : 0,
-      genres:          anime.genres || [],
-      averageScore:    anime.averageScore || 0,
-      format:          anime.format || "",
+      genres:          source.genres || [],
+      averageScore:    source.averageScore || 0,
+      format:          source.format || "",
       notes:           isUpdate ? existing.notes : "",
       dateAdded:       isUpdate ? existing.dateAdded : Date.now(),
       lastWatched:     isUpdate ? existing.lastWatched : 0,
       completedAt:     status === "completed" ? Date.now() : (isUpdate ? existing.completedAt : 0),
-      year:            anime.year || 0
+      year:            source.year || 0
     };
 
     const newData = { ...userData, [id]: entryData };
@@ -81,6 +84,7 @@ export function AnimeProvider({ children }) {
   const value = {
     userData, setUserData,
     anilistCache, setAnilistCache,
+    homeTrending, setHomeTrending,
     currentTab, setCurrentTab,
     libraryFilter, setLibraryFilter,
     browseData, setBrowseData,

@@ -1,9 +1,8 @@
-
-import { useEffect, useState, useRef } from 'react';
-import { useAnimeData } from '../hooks/useAnimeData';
-import { normalizeAnime, getCurrentSeason } from '../utils/animeUtils';
+import { useEffect, useRef, useState } from 'react';
 import { AnimeCard } from '../components/AnimeRows';
-import { SEASONAL_GRID_INITIAL, SEASONAL_GRID_BATCH } from '../utils/renderBudgets';
+import { useAnimeData } from '../hooks/useAnimeData';
+import { getCurrentSeason, normalizeAnime } from '../utils/animeUtils';
+import { SEASONAL_GRID_BATCH, SEASONAL_GRID_INITIAL } from '../utils/renderBudgets';
 
 const SEASONAL_QUERY = `
 query($season: MediaSeason, $seasonYear: Int, $page: Int) {
@@ -12,7 +11,22 @@ query($season: MediaSeason, $seasonYear: Int, $page: Int) {
       hasNextPage
     }
     media(season: $season, seasonYear: $seasonYear, type: ANIME, sort: POPULARITY_DESC) {
-      id idMal title{romaji english native}coverImage{extraLarge large}episodes nextAiringEpisode{episode} duration status averageScore genres season seasonYear format description startDate{year month day} bannerImage
+      id
+      idMal
+      title { romaji english native }
+      coverImage { extraLarge large }
+      episodes
+      nextAiringEpisode { episode }
+      duration
+      status
+      averageScore
+      genres
+      season
+      seasonYear
+      format
+      description
+      startDate { year month day }
+      bannerImage
     }
   }
 }`;
@@ -30,9 +44,9 @@ export default function Seasonal({ onOpenDetail }) {
 
   useEffect(() => {
     const fetchSeasonal = async () => {
-      setSeasonalData((prev) => ({ ...prev, loading: true }));
+      setSeasonalData((prev) => ({ ...prev, loading: true, error: null }));
       try {
-        const res = await fetch('https://graphql.anilist.co', {
+        const response = await fetch('https://graphql.anilist.co', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -40,8 +54,10 @@ export default function Seasonal({ onOpenDetail }) {
             variables: { season, seasonYear: year, page: 1 },
           }),
         });
-        const json = await res.json();
-        const results = json.data.Page.media.map(normalizeAnime);
+
+        const json = await response.json();
+        const results = (json?.data?.Page?.media || []).map(normalizeAnime).filter(Boolean);
+
         setSeasonalData({
           results,
           loading: false,
@@ -49,67 +65,67 @@ export default function Seasonal({ onOpenDetail }) {
           page: 1,
           season,
           year,
-          hasMore: json.data.Page.pageInfo.hasNextPage,
+          hasMore: Boolean(json?.data?.Page?.pageInfo?.hasNextPage),
         });
-      } catch (e) {
-        setSeasonalData((prev) => ({ ...prev, loading: false, error: e.message }));
+      } catch (error) {
+        setSeasonalData((prev) => ({ ...prev, loading: false, error: error.message }));
       }
     };
 
     fetchSeasonal();
-  }, [season, year, setSeasonalData]);
+  }, [season, setSeasonalData, year]);
 
   const seasons = ['WINTER', 'SPRING', 'SUMMER', 'FALL'];
-
-  const displayed = seasonalData.results.slice(0, Math.min(gridCap, seasonalData.results.length));
+  const displayed = seasonalData.results.slice(
+    0,
+    Math.min(gridCap, seasonalData.results.length)
+  );
   const canRevealMore = seasonalData.results.length > displayed.length;
 
   useEffect(() => {
-    const el = moreRef.current;
-    if (!el || !canRevealMore) return;
+    const element = moreRef.current;
+    if (!element || !canRevealMore) return undefined;
 
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0]?.isIntersecting) {
-          setGridCap((c) => c + SEASONAL_GRID_BATCH);
+          setGridCap((count) => count + SEASONAL_GRID_BATCH);
         }
       },
       { rootMargin: '240px', threshold: 0 }
     );
-    observer.observe(el);
+
+    observer.observe(element);
     return () => observer.disconnect();
   }, [canRevealMore, displayed.length]);
 
   return (
     <div className="section page-inner">
       <div className="section__head">
-        <div className="section__title">Seasonal Anime</div>
-        <div className="section__actions" style={{ display: 'flex', gap: 'var(--sp-2)' }}>
-          <select
-            value={season}
-            onChange={(e) => setSeason(e.target.value)}
-            className="btn btn--glass btn--sm"
-            style={{ padding: '4px 12px' }}
-          >
-            {seasons.map((s) => (
-              <option key={s} value={s}>
-                {s}
+        <div>
+          <div className="section__eyebrow">Current line-up</div>
+          <div className="section__title">Seasonal Anime</div>
+        </div>
+        <div className="seasonal-controls">
+          <select value={season} onChange={(event) => setSeason(event.target.value)} className="field-control">
+            {seasons.map((value) => (
+              <option key={value} value={value}>
+                {value}
               </option>
             ))}
           </select>
           <input
             type="number"
             value={year}
-            onChange={(e) => setYear(parseInt(e.target.value, 10))}
-            className="btn btn--glass btn--sm"
-            style={{ width: '80px', padding: '4px 12px' }}
+            onChange={(event) => setYear(parseInt(event.target.value, 10))}
+            className="field-control field-control--compact"
           />
         </div>
       </div>
 
       {seasonalData.loading && seasonalData.results.length === 0 ? (
         <div className="loading-state">
-          <div className="spinner"></div>
+          <div className="spinner" />
           <p>Loading the season...</p>
         </div>
       ) : (
@@ -119,7 +135,7 @@ export default function Seasonal({ onOpenDetail }) {
               <AnimeCard key={anime.id} anime={anime} onOpenDetail={onOpenDetail} />
             ))}
           </div>
-          {canRevealMore && <div ref={moreRef} style={{ height: 1 }} aria-hidden />}
+          {canRevealMore ? <div ref={moreRef} style={{ height: 1 }} aria-hidden /> : null}
         </>
       )}
     </div>

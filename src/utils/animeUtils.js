@@ -130,6 +130,16 @@ export function getCoverSrc(anime) {
   return anime.cover || anime.coverImage?.large || anime.coverImage?.medium || anime.poster || "";
 }
 
+export function getPlainDescription(value) {
+  if (!value) return "";
+  return String(value)
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function truncate(s, n) {
   return s && s.length > n ? s.slice(0, n) + "..." : s || "";
 }

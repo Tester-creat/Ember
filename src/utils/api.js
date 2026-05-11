@@ -2,6 +2,24 @@
 import { normalizeAnime, scoreAnikotoTitleMatch, collectTitleNeedles, pickAnikotoEpisode } from './animeUtils';
 
 const ANILIST_API = "https://graphql.anilist.co";
+const MEDIA_CARD_FIELDS = `
+  id
+  idMal
+  title { romaji english native }
+  coverImage { extraLarge large medium }
+  episodes
+  nextAiringEpisode { episode }
+  duration
+  status
+  averageScore
+  genres
+  season
+  seasonYear
+  format
+  description
+  startDate { year month day }
+  bannerImage
+`;
 
 export const STREAM_PROVIDERS = [
   { 
@@ -24,7 +42,7 @@ export const STREAM_PROVIDERS = [
 ];
 
 
-export async function anilistFetch(query, vars, timeoutMs = 10000) {
+async function anilistPageFetch(query, vars, timeoutMs = 10000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -40,13 +58,18 @@ export async function anilistFetch(query, vars, timeoutMs = 10000) {
       throw new Error(msg);
     }
     const json = await res.json();
-    return json.data?.Page?.media || [];
+    return json.data?.Page || null;
   } catch (e) {
     if (e.name === "AbortError") throw new Error("Request timed out", { cause: e });
     throw e;
   } finally {
     clearTimeout(timer);
   }
+}
+
+export async function anilistFetch(query, vars, timeoutMs = 10000) {
+  const page = await anilistPageFetch(query, vars, timeoutMs);
+  return page?.media || [];
 }
 
 export function anikotoFetch(endpoint) {
@@ -57,7 +80,37 @@ export function anikotoFetch(endpoint) {
   return fetch(url);
 }
 
-export const SEARCH_QUERY = `query($search:String,$page:Int,$perPage:Int){Page(page:$page,perPage:$perPage){media(search:$search,type:ANIME,sort:POPULARITY_DESC){id idMal title{romaji english native}coverImage{extraLarge large}episodes nextAiringEpisode{episode} duration status averageScore genres season seasonYear format description startDate{year month day} bannerImage}}}`;
+export const SEARCH_QUERY = `query($search:String,$page:Int,$perPage:Int){Page(page:$page,perPage:$perPage){media(search:$search,type:ANIME,sort:POPULARITY_DESC){${MEDIA_CARD_FIELDS}}}}`;
+export const TRENDING_QUERY = `query($page:Int,$perPage:Int){Page(page:$page,perPage:$perPage){pageInfo{hasNextPage}media(type:ANIME,sort:[TRENDING_DESC,POPULARITY_DESC]){${MEDIA_CARD_FIELDS}}}}`;
+
+export async function fetchTrendingAnimePage(page = 1, perPage = 30) {
+  const pageData = await anilistPageFetch(TRENDING_QUERY, { page, perPage });
+  const results = (pageData?.media || []).map(normalizeAnime).filter(Boolean);
+  return {
+    results,
+    page,
+    hasMore: Boolean(pageData?.pageInfo?.hasNextPage),
+  };
+}
+
+export async function fetchRecentAnimePage(page = 1, perPage = 50) {
+  const res = await anikotoFetch(`/recent-anime?page=${page}&per_page=${perPage}`);
+  if (!res.ok) {
+    throw new Error(`Recent anime request failed: HTTP ${res.status}`);
+  }
+
+  const json = await res.json();
+  const list = Array.isArray(json?.data) ? json.data : [];
+  const results = list
+    .map((item) => normalizeAnime({ ...item, id: item.ani_id }))
+    .filter(Boolean);
+
+  return {
+    results,
+    page,
+    hasMore: results.length >= perPage,
+  };
+}
 
 
 export async function searchAnime(query) {
@@ -131,8 +184,7 @@ export async function resolveAnikotoSeries(anilistId, animeContext) {
   // We'll scan up to 20 pages by default, which covers most recent/semi-old anime.
   // For truly legacy anime, we'll continue if nothing is found.
   let page = 1;
-  let maxPages = 50; // Deep scan limit
-  let found = null;
+  const maxPages = 50; // Deep scan limit
 
   while (page <= maxPages) {
     try {
@@ -143,7 +195,7 @@ export async function resolveAnikotoSeries(anilistId, animeContext) {
       if (!list.length) break;
 
       // Try exact AniList ID match first
-      found = list.find(item => String(item.ani_id) === String(anilistId) || String(item.mal_id) === String(animeContext?.idMal));
+      let found = list.find(item => String(item.ani_id) === String(anilistId) || String(item.mal_id) === String(animeContext?.idMal));
       
       if (!found) {
         // Fallback to fuzzy title match

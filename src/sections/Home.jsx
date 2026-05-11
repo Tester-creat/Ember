@@ -1,41 +1,47 @@
-
-import { useMemo, useState } from 'react';
-import { useAnimeData } from '../hooks/useAnimeData';
+import { useMemo } from 'react';
 import { MarqueeRow } from '../components/AnimeRows';
-import { sortCompletedEntries, getDisplayTitle, getCoverSrc } from '../utils/animeUtils';
+import CoverArt from '../components/CoverArt';
+import { useAnimeData } from '../hooks/useAnimeData';
+import { getDisplayTitle, sortCompletedEntries } from '../utils/animeUtils';
 import {
-  TRENDING_MARQUEE_ITEMS,
   COMPLETED_MARQUEE_ITEMS,
   CONTINUE_WATCHING_HOME,
+  TRENDING_MARQUEE_ITEMS,
 } from '../utils/renderBudgets';
 
 export default function Home({ onOpenDetail }) {
-  const { userData, browseData, setCurrentTab, setCurrentWatchId } = useAnimeData();
+  const { userData, homeTrending, setCurrentTab, setCurrentWatchId } = useAnimeData();
 
-  const entries = useMemo(() => Object.values(userData).filter((e) => e && e.id), [userData]);
+  const entries = useMemo(
+    () => Object.values(userData).filter((entry) => entry && entry.id),
+    [userData]
+  );
 
   const watching = useMemo(
     () =>
       entries
-        .filter((e) => e.status === 'watching')
+        .filter((entry) => entry.status === 'watching')
         .sort((a, b) => (b.lastWatched || 0) - (a.lastWatched || 0))
         .slice(0, CONTINUE_WATCHING_HOME),
     [entries]
   );
 
   const completed = useMemo(
-    () => sortCompletedEntries(entries.filter((e) => e.status === 'completed')),
+    () => sortCompletedEntries(entries.filter((entry) => entry.status === 'completed')),
     [entries]
   );
 
-  const trendingItems = useMemo(() => browseData.results || [], [browseData.results]);
+  const trendingItems = useMemo(() => homeTrending.results || [], [homeTrending.results]);
 
   return (
     <div className="home-content page-inner">
       <section className="section">
         <div className="section__head">
-          <div className="section__title">Trending Now</div>
-          <button className="btn btn--sm btn--glass" onClick={() => setCurrentTab('browse')}>
+          <div>
+            <div className="section__eyebrow">Ambient discovery</div>
+            <div className="section__title">Trending Now</div>
+          </div>
+          <button className="btn btn--ghost btn--sm" onClick={() => setCurrentTab('browse')}>
             View All
           </button>
         </div>
@@ -47,14 +53,17 @@ export default function Home({ onOpenDetail }) {
         />
       </section>
 
-      {watching.length > 0 && (
+      {watching.length > 0 ? (
         <section className="section">
           <div className="section__head">
-            <div className="section__title">Continue Watching</div>
+            <div>
+              <div className="section__eyebrow">Picked up where you left off</div>
+              <div className="section__title">Continue Watching</div>
+            </div>
           </div>
           <div className="media-row">
             <div className="media-row__viewport" data-row-track="continueRow">
-              <div className="media-row__track">
+              <div className="media-row__track media-row__track--static">
                 {watching.map((entry) => (
                   <ContinueCard
                     key={entry.id}
@@ -69,9 +78,9 @@ export default function Home({ onOpenDetail }) {
             </div>
           </div>
         </section>
-      )}
+      ) : null}
 
-      {completed.length > 0 && (
+      {completed.length > 0 ? (
         <MarqueeRow
           title="Completed Masterpieces"
           items={completed}
@@ -79,50 +88,33 @@ export default function Home({ onOpenDetail }) {
           maxItems={COMPLETED_MARQUEE_ITEMS}
           onOpenDetail={onOpenDetail}
         />
-      )}
+      ) : null}
     </div>
   );
 }
 
 function ContinueCard({ entry, onWatch }) {
-  const poster = getCoverSrc(entry);
   const title = getDisplayTitle(entry);
-  const nextEp = (entry.episodesWatched || 0) + 1;
-  const totalEp = entry.episodes || '?';
-  const [bgError, setBgError] = useState(false);
-  const [posterError, setPosterError] = useState(false);
+  const nextEpisode = (entry.episodesWatched || 0) + 1;
+  const totalEpisodes = entry.episodes || '?';
 
   return (
-    <div
-      className="continue-card"
-      onClick={onWatch}
-      onKeyDown={(e) => e.key === 'Enter' && onWatch()}
-      role="button"
-      tabIndex={0}
-    >
+    <button type="button" className="continue-card" onClick={onWatch}>
       <div className="continue-card__bg">
-        {poster && !bgError ? (
-          <img src={poster} alt="" loading="lazy" decoding="async" className="cover-media__img" onError={() => setBgError(true)} />
-        ) : (
-          <div className="cover-media__ph">{title.charAt(0)}</div>
-        )}
+        <CoverArt anime={entry} className="cover-media cover-media--fill" />
       </div>
       <div className="continue-card__content">
         <div className="continue-card__poster">
-          {poster && !posterError ? (
-            <img src={poster} alt="" loading="lazy" decoding="async" className="cover-media__img" onError={() => setPosterError(true)} />
-          ) : (
-            <div className="cover-media__ph">{title.charAt(0)}</div>
-          )}
+          <CoverArt anime={entry} className="cover-media cover-media--poster" />
         </div>
         <div className="continue-card__info">
           <div className="continue-card__title">{title}</div>
           <div className="continue-card__ep">
-            Ep {nextEp} / {totalEp}
+            Episode {nextEpisode} of {totalEpisodes}
           </div>
         </div>
-        <div className="continue-card__play">▶</div>
+        <div className="continue-card__play">Resume</div>
       </div>
-    </div>
+    </button>
   );
 }
