@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- context + hook pair */
 import { createContext, useContext, useState, useCallback } from 'react';
-import { normalizeAnime } from '../utils/animeUtils';
+import { getStatusTransitionPatch, normalizeAnime } from '../utils/animeUtils';
 
 
 const AnimeContext = createContext();
@@ -48,11 +48,12 @@ export function AnimeProvider({ children }) {
     saveData(newData);
   }, [userData, saveData]);
 
-  const addToLibrary = useCallback((anime, status = "untracked") => {
+  const addToLibrary = useCallback((anime, status = "untracked", extraUpdates = {}) => {
     const source = normalizeAnime(anime) || anime;
     const id = String(source.id || source.anilistId);
     const existing = userData[id];
     const isUpdate = !!existing;
+    const transitionPatch = getStatusTransitionPatch(existing, status);
 
     const entryData = {
       id:              id,
@@ -63,7 +64,7 @@ export function AnimeProvider({ children }) {
       banner:          source.banner || "",
       episodes:        source.episodes || 0,
       episodesWatched: isUpdate ? existing.episodesWatched : 0,
-      status:          status,
+      status:          transitionPatch.status,
       language:        isUpdate ? existing.language : "sub",
       rating:          isUpdate ? existing.rating : 0,
       genres:          source.genres || [],
@@ -72,8 +73,9 @@ export function AnimeProvider({ children }) {
       notes:           isUpdate ? existing.notes : "",
       dateAdded:       isUpdate ? existing.dateAdded : Date.now(),
       lastWatched:     isUpdate ? existing.lastWatched : 0,
-      completedAt:     status === "completed" ? Date.now() : (isUpdate ? existing.completedAt : 0),
-      year:            source.year || 0
+      completedAt:     transitionPatch.completedAt,
+      year:            source.year || 0,
+      ...extraUpdates,
     };
 
     const newData = { ...userData, [id]: entryData };

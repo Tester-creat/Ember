@@ -160,6 +160,33 @@ export function getStatusLabel(s) {
   return map[s] || s || "Add to List";
 }
 
+export const STATUS_COLOR_MAP = {
+  watching: '#A78BFA',
+  queued: '#2DD4BF',
+  'plan-to-watch': '#3080FF',
+  rewatching: '#E879F9',
+  paused: '#F99C00',
+  favorites: '#FACC15',
+  completed: '#00C758',
+  archived: '#94A3B8',
+  dropped: '#FB2C36',
+  untracked: '#737373',
+};
+
+export function getStatusColor(status) {
+  return STATUS_COLOR_MAP[status] || '#DFDFDF';
+}
+
+export function getStatusTransitionPatch(entry, nextStatus) {
+  const wasCompleted = entry?.status === 'completed';
+  const isCompleted = nextStatus === 'completed';
+
+  return {
+    status: nextStatus,
+    completedAt: isCompleted ? entry?.completedAt || Date.now() : wasCompleted ? 0 : entry?.completedAt || 0,
+  };
+}
+
 export const STATUS_ORDER = [
   "watching", "queued", "plan-to-watch", "rewatching",
   "paused", "favorites", "completed", "archived", "dropped", "untracked"

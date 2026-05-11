@@ -21,15 +21,26 @@ const MEDIA_CARD_FIELDS = `
   bannerImage
 `;
 
+// Verified against the live VidNest docs on 2026-05-11.
+export function buildVidNestUrl(anilistId, ep, lang = 'sub') {
+  return `https://vidnest.fun/anime/${anilistId}/${ep}/${lang}`;
+}
+
+// Verified against the live MegaPlay API docs on 2026-05-11.
+export function buildMegaPlayAniListUrl(anilistId, ep, lang = 'sub') {
+  return `https://megaplay.buzz/stream/ani/${anilistId}/${ep}/${lang}`;
+}
+
 export const STREAM_PROVIDERS = [
   { 
     name: "MegaPlay", 
     isAnikoto: true,
-    buildUrl: (anikotoUrl) => anikotoUrl
+    buildUrl: (anikotoUrl) => anikotoUrl,
+    buildAniListUrl: buildMegaPlayAniListUrl,
   },
   { 
     name: "VidNest", 
-    buildUrl: (anilistId, ep, lang) => `https://vidnest.fun/anime/${anilistId}/${ep}/${lang}` 
+    buildUrl: buildVidNestUrl,
   },
   { 
     name: "VidSrc", 
@@ -247,7 +258,9 @@ export async function fetchAnikotoEpisode(seriesId, epNum, lang = 'sub') {
   if (!ep) throw new Error(`Episode ${epNum} not found in Anikoto`);
 
   const embedUrl = ep.embed_url?.[lang] || ep.embed_url?.['sub'] || ep.embed_url?.['dub'];
-  if (!embedUrl) throw new Error(`No ${lang} embed found for episode ${epNum}`);
+  if (typeof embedUrl !== 'string' || embedUrl.trim() === '') {
+    throw new Error(`No ${lang} embed found for episode ${epNum}`);
+  }
   
-  return embedUrl;
+  return embedUrl.trim();
 }
