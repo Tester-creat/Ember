@@ -13,6 +13,20 @@ import { getDisplayTitle, getStatusTransitionPatch, normalizeAnime } from '../ut
 const EPISODE_GROUP_SIZE = 40;
 const PROVIDER_FALLBACK_TIMEOUT_MS = 30000;
 
+function getNodeYear(node) {
+  return node?.year || node?.seasonYear || node?.startDate?.year || 0;
+}
+
+function getNodeFormat(node) {
+  return String(node?.format || 'ANIME').replace(/_/g, ' ');
+}
+
+function getNodeEpisodeCount(node) {
+  const episodes = Number(node?.episodes || 0);
+  if (!episodes) return 'Episodes unknown';
+  return `${episodes} ${episodes === 1 ? 'ep' : 'eps'}`;
+}
+
 export default function Watch() {
   const {
     currentWatchId,
@@ -41,8 +55,8 @@ export default function Watch() {
   const [resolvingMessage, setResolvingMessage] = useState('');
   const [watchOrder, setWatchOrder] = useState([]);
   const [episodeGroupOverride, setEpisodeGroupOverride] = useState(null);
-  const [groupMenuOpen, setGroupMenuOpen] = useState(false);
   const [retryNonce, setRetryNonce] = useState(0);
+  const [toastMessage, setToastMessage] = useState('');
 
   const totalEpisodes = entry?.episodes || 9999;
   const totalLabel = totalEpisodes === 9999 ? '?' : totalEpisodes;
@@ -64,6 +78,12 @@ export default function Watch() {
   useEffect(() => {
     autoFallbackAttemptsRef.current = 0;
   }, [currentEpisode, currentLanguage, currentWatchId]);
+
+  useEffect(() => {
+    if (!toastMessage) return undefined;
+    const timer = window.setTimeout(() => setToastMessage(''), 2500);
+    return () => window.clearTimeout(timer);
+  }, [toastMessage]);
 
   const cycleProvider = useCallback(
     (reason) => {
@@ -234,13 +254,7 @@ export default function Watch() {
   const derivedEpisodeGroup = hasKnownEpisodeCount
     ? Math.floor((Math.max(1, currentEpisode) - 1) / EPISODE_GROUP_SIZE)
     : 0;
-  const episodeGroup =
-    episodeGroupOverride != null &&
-    (!hasKnownEpisodeCount ||
-      (currentEpisode >= episodeGroupOverride * EPISODE_GROUP_SIZE + 1 &&
-        currentEpisode <= episodeGroupOverride * EPISODE_GROUP_SIZE + EPISODE_GROUP_SIZE))
-      ? episodeGroupOverride
-      : derivedEpisodeGroup;
+  const episodeGroup = episodeGroupOverride ?? derivedEpisodeGroup;
   const activeGroupStart = episodeGroup * EPISODE_GROUP_SIZE + 1;
   const activeGroupEnd = hasKnownEpisodeCount
     ? Math.min(activeGroupStart + EPISODE_GROUP_SIZE - 1, totalEpisodes)
@@ -253,12 +267,60 @@ export default function Watch() {
       )
     : Array.from({ length: 100 }, (_, index) => index + 1);
 
+  const watchedEpisodes = new Set((entry.watchedEpisodes || []).map(Number));
+  const isEpisodeWatched = (episode) =>
+    watchedEpisodes.has(Number(episode)) || episode <= (entry.episodesWatched || 0);
+
+  const handleEpisodeGroupChange = (event) => {
+    const nextGroup = parseInt(event.target.value, 10);
+    const nextStart = nextGroup * EPISODE_GROUP_SIZE + 1;
+
+    // [FIX] Bug 1 - the old override was ignored unless the current episode was
+    // already in that range, so selecting another group never changed the list.
+    setEpisodeGroupOverride(nextGroup);
+    setCurrentEpisode(nextStart);
+  };
+
+  const markEpisodeWatched = (episode) => {
+    const watched = new Set((entry.watchedEpisodes || []).map(Number));
+    watched.add(Number(episode));
+
+    // [FIX] Bug 2 - persist watched state, then render ticks/dimming from state
+    // so the visual feedback survives episode group and watch view re-renders.
+    updateEntry(entry.id, {
+      episodesWatched: Math.max(entry.episodesWatched || 0, episode),
+      watchedEpisodes: [...watched].sort((a, b) => a - b),
+      lastWatched: Date.now(),
+      ...getStatusTransitionPatch(
+        entry,
+        totalEpisodes !== 9999 && episode >= totalEpisodes ? 'completed' : 'watching'
+      ),
+    });
+    setToastMessage(`Episode ${episode} marked as watched`);
+  };
+
   const handleWatchOrderSelect = (node) => {
     const savedEntry = addToLibrary(normalizeAnime(node), 'watching');
     setCurrentWatchId(savedEntry.id);
     setCurrentEpisode(1);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+
+  const watchOrderItems = (() => {
+    const current = {
+      node: {
+        ...entry,
+        id: entry.anilistId || entry.id,
+        type: 'ANIME',
+      },
+      relationType: 'CURRENT',
+    };
+    const related = watchOrder.filter((edge) => String(edge?.node?.id) !== String(entry.anilistId));
+
+    // [FIX] Bug 4 - always render the full relation list in stored order. The
+    // current entry is de-duped but never used to slice/filter sibling titles.
+    return [current, ...related];
+  })();
 
   return (
     <div className="watch-layout page-inner">
@@ -319,7 +381,6 @@ export default function Watch() {
                 className="btn btn--glass btn--sm"
                 onClick={() => {
                   setEpisodeGroupOverride(null);
-                  setGroupMenuOpen(false);
                   setCurrentEpisode((prev) => Math.max(1, prev - 1));
                 }}
                 disabled={currentEpisode <= 1}
@@ -330,7 +391,6 @@ export default function Watch() {
                 className="btn btn--glass btn--sm"
                 onClick={() => {
                   setEpisodeGroupOverride(null);
-                  setGroupMenuOpen(false);
                   setCurrentEpisode((prev) => prev + 1);
                 }}
                 disabled={totalEpisodes !== 9999 && currentEpisode >= totalEpisodes}
@@ -363,19 +423,7 @@ export default function Watch() {
               </div>
             </div>
 
-            <button
-              className="btn btn--glass btn--sm"
-              onClick={() => {
-                updateEntry(entry.id, {
-                  episodesWatched: currentEpisode,
-                  lastWatched: Date.now(),
-                  ...getStatusTransitionPatch(
-                    entry,
-                    totalEpisodes !== 9999 && currentEpisode >= totalEpisodes ? 'completed' : 'watching'
-                  ),
-                });
-              }}
-            >
+            <button className="btn btn--glass btn--sm" onClick={() => markEpisodeWatched(currentEpisode)}>
               Mark Watched
             </button>
 
@@ -391,28 +439,43 @@ export default function Watch() {
           </div>
         </div>
 
-        {watchOrder.length > 0 ? (
+        {watchOrderItems.length > 1 ? (
           <div className="wo-panel">
             <div className="wo-panel__title">Watch Order</div>
             <div className="wo-cards">
-              {watchOrder.map((edge) => (
-                <button
-                  key={edge.node.id}
-                  type="button"
-                  className="wo-card"
-                  onClick={() => handleWatchOrderSelect(edge.node)}
-                >
-                  <div className="wo-card__cover">
-                    <CoverArt anime={edge.node} className="cover-media cover-media--fill" />
-                  </div>
-                  <div className="wo-card__body">
-                    <div className="wo-card__badge">{edge.relationType.replace(/_/g, ' ')}</div>
-                    <div className="wo-card__title">
-                      {edge.node.title.english || edge.node.title.romaji}
+              {watchOrderItems.map((edge, index) => {
+                const node = normalizeAnime(edge.node) || edge.node;
+                const isCurrent = String(node.id || node.anilistId) === String(entry.anilistId);
+
+                // [FIX] Bug 3 - each row now has order, year, type, episode
+                // count, and a single current-title indicator.
+                return (
+                  <button
+                    key={`${edge.relationType}-${node.id || index}`}
+                    type="button"
+                    className={`wo-card ${isCurrent ? 'is-current' : ''}`}
+                    onClick={() => handleWatchOrderSelect(edge.node)}
+                  >
+                    <div className="wo-card__cover">
+                      <CoverArt anime={node} className="cover-media cover-media--fill" />
                     </div>
-                  </div>
-                </button>
-              ))}
+                    <div className="wo-card__body">
+                      <div className="wo-card__topline">
+                        <span className="wo-card__index">{index + 1}</span>
+                        <span className="wo-card__badge">{getNodeFormat(node)}</span>
+                        {getNodeYear(node) ? (
+                          <span className="wo-card__year">{getNodeYear(node)}</span>
+                        ) : null}
+                      </div>
+                      <div className="wo-card__title">{getDisplayTitle(node)}</div>
+                      <div className="wo-card__meta">
+                        <span>{getNodeEpisodeCount(node)}</span>
+                        {isCurrent ? <span className="wo-card__now">Now Watching</span> : null}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
         ) : null}
@@ -422,46 +485,68 @@ export default function Watch() {
         <div className="watch-sidebar__title">Episodes ({totalLabel})</div>
         {groupOptions.length > 1 ? (
           <div className="episode-group-selector">
-            <button
-              type="button"
-              className={`episode-group-btn ${groupMenuOpen ? 'is-active' : ''}`}
-              onClick={() => setGroupMenuOpen((open) => !open)}
+            <select
+              className="episode-group-select"
+              value={episodeGroup}
+              onChange={handleEpisodeGroupChange}
+              aria-label="Episode group"
             >
-              <span>
-                Episodes {activeGroupStart}-{activeGroupEnd}
-              </span>
-              <span className="chevron">⌄</span>
-            </button>
-            <div className={`episode-group-list ${groupMenuOpen ? 'is-open' : ''}`}>
               {groupOptions.map((group) => (
-                <button
-                  key={group.index}
-                  type="button"
-                  className={group.index === episodeGroup ? 'is-active' : ''}
-                  onClick={() => {
-                    setEpisodeGroupOverride(group.index);
-                    setGroupMenuOpen(false);
-                  }}
-                >
+                <option key={group.index} value={group.index}>
                   Episodes {group.start}-{group.end}
-                </button>
+                </option>
               ))}
-            </div>
+            </select>
           </div>
         ) : null}
-        <div className="watch-sidebar__list">
-          {visibleEpisodes.map((episode) => (
-            <button
-              key={episode}
-              className={`ep-row ${episode === currentEpisode ? 'is-current' : ''} ${episode <= (entry.episodesWatched || 0) ? 'is-watched' : ''}`}
-              onClick={() => setCurrentEpisode(episode)}
-            >
-              <span className="ep-row__number">{episode}</span>
-              <span className="ep-row__label">Episode {episode}</span>
-            </button>
-          ))}
+        <div className="watch-sidebar__list" id="episode-list">
+          {visibleEpisodes.map((episode) => {
+            const watched = isEpisodeWatched(episode);
+            return (
+              <button
+                key={episode}
+                className={`ep-row ${episode === currentEpisode ? 'is-current' : ''} ${watched ? 'episode--watched is-watched' : ''}`}
+                onClick={() => setCurrentEpisode(episode)}
+              >
+                <span className="ep-row__number">{episode}</span>
+                <span className="ep-row__label">Episode {episode}</span>
+                <span className="ep-row__state">
+                  {watched ? (
+                    <svg className="ep-row__check" viewBox="0 0 16 16" aria-hidden="true">
+                      <path d="M13.5 4.5 6.5 11.5 2.5 7.5" />
+                    </svg>
+                  ) : (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      className="ep-row__mark"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        markEpisodeWatched(episode);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          markEpisodeWatched(episode);
+                        }
+                      }}
+                    >
+                      Mark
+                    </span>
+                  )}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
+
+      {toastMessage ? (
+        <div className="watch-toast" role="status" aria-live="polite">
+          {toastMessage}
+        </div>
+      ) : null}
     </div>
   );
 }

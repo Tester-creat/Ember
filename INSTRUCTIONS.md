@@ -7,7 +7,7 @@ public multi-user service right now, so the near-term scope deliberately exclude
 large account databases, payments, recommendations for other users, and heavy backend
 infrastructure.
 
-The current priority is to make the GitHub-hosted frontend stable, maintainable, and
+The current priority is to keep the GitHub-hosted frontend stable, maintainable, and
 honest about provider reliability before discussing backend architecture.
 
 ## Current Architecture
@@ -37,48 +37,37 @@ honest about provider reliability before discussing backend architecture.
 - Completed marquee is capped so large completed libraries do not render every title
   in the animated row.
 - Browse, search, seasonal, and library grids progressively reveal items.
-- Search now reports API failures instead of showing false empty results.
-- Seasonal requests now check HTTP and GraphQL errors.
+- Search reports API failures instead of showing false empty results.
+- Seasonal requests check HTTP and GraphQL errors.
 - Seasonal requests abort when season/year changes.
-- Watch iframe now clears stale embeds while resolving a new provider or episode.
-- Watch iframe now uses `referrerPolicy="no-referrer"`. The sandbox attribute was
+- Watch iframe clears stale embeds while resolving a new provider or episode.
+- Watch iframe uses `referrerPolicy="no-referrer"`. The sandbox attribute was
   removed because current stream providers reject sandboxed iframe embeds.
 - Library import/export is available for local backup and transfer.
 - Remote Google Fonts dependency has been removed.
 - AniList synonyms are included in normalized media data for better title matching.
-- Watch page uses a compact provider list instead of hiding all providers behind one
-  cycling button.
+- Watch page uses a compact provider list.
 - Home explains when the completed marquee is capped for animation performance.
 
 ## Remaining Frontend Tasks
 
 ### Provider Reliability
 
-- Build a real client-side provider adapter shape:
-  - provider id
-  - display name
-  - supported languages
-  - URL builder
-  - known limitations
-  - optional health check
-- Show provider status more clearly on the watch page.
+- Build a real client-side provider adapter shape.
 - Track provider failures per title/episode during the session.
-- Add a manual "report failed for this title" note or local flag.
 - Improve provider matching with AniList id, MAL id, synonyms, year, format, and
   normalized title variants.
 
 ### Playback UX
 
-- Add a visible "Try next provider" recovery action inside the player area.
-- Add a compact provider list instead of a single cycling provider button.
+- Add a visible next-provider recovery action inside the player area.
 - Preserve selected provider/language per library entry.
-- Avoid marking an episode watched until the user explicitly does so.
+- Keep watched episode UI derived from saved state.
 
 ### Library UX
 
 - Add merge-vs-replace choice for imports.
 - Validate imported library schema more strictly.
-- Add local backup metadata such as app version and entry count.
 - Add a small warning before overwriting an existing library.
 
 ### Performance

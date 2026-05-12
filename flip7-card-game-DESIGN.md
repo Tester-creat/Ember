@@ -21,10 +21,8 @@ success/failure states.
 
 ## What The Stats Tab Should Not Borrow Literally
 
-- Teal/coral/gold palette as the main theme.
-- Cream card surfaces as the base interface.
-- Game-piece card styling for anime posters.
-- Folded ribbon logo/header patterns.
+- Game-specific logo treatments.
+- Folded ribbon headers.
 - Confetti, crown, BOOM, or scoring-specific animations.
 - Emoji-led section titles.
 - WeChat mini-program units such as `rpx`.
@@ -33,42 +31,23 @@ success/failure states.
 
 ### Buttons
 
-Use the existing dark streaming style, but keep buttons responsive and tactile:
-
 - primary action: strong accent fill
 - secondary action: glass/ghost treatment
 - destructive or failure action: red/error treatment
-- provider action: clearly selected active provider
 
 ### Cards
 
-Anime rows should remain title-first with poster thumbnails. Borrow only the idea of
-strong hover/selected feedback:
-
-- stable poster aspect ratio
-- visible title and metadata
-- subtle border lift on hover
-- status badge for tracked library items
-
-### Provider And Playback Feedback
-
-Flip7's useful lesson for Ember is immediate state feedback. Provider failures should
-not feel silent:
-
-- show when a provider is being resolved
-- show when fallback is happening
-- show the active provider and language
-- offer a clear next-provider action
-- explain that some embeds can load but still fail playback
+- warm cream card surfaces
+- teal/coral/gold/sky accent bars
+- rounded tactile stat panels
+- subtle hover lift
+- readable metadata and progress values
 
 ### Motion
 
-Keep motion cinematic, not playful:
-
-- hero crossfade should remain smooth and slow
-- marquee motion should stay transform-based
 - button and card feedback should stay under 500ms
 - no decorative celebration animations in the streaming UI
+- progress and status transitions should feel responsive
 
 ## Active Stats Direction
 
