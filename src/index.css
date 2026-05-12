@@ -1238,32 +1238,6 @@ a {
   align-items: center;
 }
 
-.provider-switcher {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-.provider-switcher__btn {
-  min-height: 34px;
-  padding: 7px 11px;
-  border: 1px solid rgba(223, 223, 223, 0.16);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background-color var(--transition), border-color var(--transition), color var(--transition);
-}
-
-.provider-switcher__btn:hover,
-.provider-switcher__btn.is-active {
-  border-color: rgba(167, 139, 250, 0.42);
-  background: rgba(167, 139, 250, 0.16);
-  color: var(--accent);
-}
-
 .watch-actions__close {
   margin-left: auto;
 }

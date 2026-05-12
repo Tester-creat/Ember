@@ -406,21 +406,15 @@ export default function Watch() {
               >
                 {currentLanguage.toUpperCase()}
               </button>
-              <div className="provider-switcher" aria-label="Stream provider">
-                {STREAM_PROVIDERS.map((provider, index) => (
-                  <button
-                    key={provider.name}
-                    type="button"
-                    className={`provider-switcher__btn ${index === currentProvider ? 'is-active' : ''}`}
-                    onClick={() => {
-                      autoFallbackAttemptsRef.current = 0;
-                      setCurrentProvider(index);
-                    }}
-                  >
-                    {provider.name}
-                  </button>
-                ))}
-              </div>
+              <button
+                className="btn btn--primary btn--sm"
+                onClick={() => {
+                  autoFallbackAttemptsRef.current = 0;
+                  setCurrentProvider((prev) => (prev + 1) % STREAM_PROVIDERS.length);
+                }}
+              >
+                {activeProvider.name}
+              </button>
             </div>
 
             <button className="btn btn--glass btn--sm" onClick={() => markEpisodeWatched(currentEpisode)}>
