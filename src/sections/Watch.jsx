@@ -230,6 +230,7 @@ export default function Watch() {
 
   if (!entry) return null;
 
+  const activeProvider = STREAM_PROVIDERS[currentProvider % STREAM_PROVIDERS.length];
   const derivedEpisodeGroup = hasKnownEpisodeCount
     ? Math.floor((Math.max(1, currentEpisode) - 1) / EPISODE_GROUP_SIZE)
     : 0;
@@ -269,9 +270,9 @@ export default function Watch() {
             <iframe
               ref={iframeRef}
               src={embedUrl}
+              title={`${getDisplayTitle(entry)} episode ${currentEpisode} on ${activeProvider.name}`}
               allow="autoplay; fullscreen"
               referrerPolicy="no-referrer"
-              sandbox="allow-scripts allow-same-origin allow-forms allow-presentation allow-popups allow-popups-to-escape-sandbox"
               data-watch-iframe
             />
           ) : null}
@@ -304,7 +305,12 @@ export default function Watch() {
         <div className="watch-meta">
           <h1 className="watch-meta__title">{getDisplayTitle(entry)}</h1>
           <div className="watch-meta__info">
-            Episode {currentEpisode} of {totalLabel} / {currentLanguage.toUpperCase()}
+            Episode {currentEpisode} of {totalLabel} / {currentLanguage.toUpperCase()} /{' '}
+            {activeProvider.name}
+          </div>
+          <div className="watch-meta__info">
+            If the player opens but stays blank, switch provider. Some embeds load an error page
+            without reporting playback failure.
           </div>
 
           <div className="watch-actions">
@@ -340,15 +346,21 @@ export default function Watch() {
               >
                 {currentLanguage.toUpperCase()}
               </button>
-              <button
-                className="btn btn--primary btn--sm"
-                onClick={() => {
-                  autoFallbackAttemptsRef.current = 0;
-                  setCurrentProvider((prev) => (prev + 1) % STREAM_PROVIDERS.length);
-                }}
-              >
-                {STREAM_PROVIDERS[currentProvider % STREAM_PROVIDERS.length].name}
-              </button>
+              <div className="provider-switcher" aria-label="Stream provider">
+                {STREAM_PROVIDERS.map((provider, index) => (
+                  <button
+                    key={provider.name}
+                    type="button"
+                    className={`provider-switcher__btn ${index === currentProvider ? 'is-active' : ''}`}
+                    onClick={() => {
+                      autoFallbackAttemptsRef.current = 0;
+                      setCurrentProvider(index);
+                    }}
+                  >
+                    {provider.name}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <button

@@ -81,13 +81,26 @@ export default function Home({ onOpenDetail }) {
       ) : null}
 
       {completed.length > 0 ? (
-        <MarqueeRow
-          title="Completed Masterpieces"
-          items={completed}
-          reverse
-          maxItems={COMPLETED_MARQUEE_ITEMS}
-          onOpenDetail={onOpenDetail}
-        />
+        <section className="section">
+          <div className="section__head">
+            <div>
+              <div className="section__title">Completed Masterpieces</div>
+              {completed.length > COMPLETED_MARQUEE_ITEMS ? (
+                <p className="library-row-hint">
+                  Showing {COMPLETED_MARQUEE_ITEMS} of {completed.length} completed titles in this
+                  animated row to keep Home smooth.
+                </p>
+              ) : null}
+            </div>
+          </div>
+          <MarqueeRow
+            items={completed}
+            reverse
+            maxItems={COMPLETED_MARQUEE_ITEMS}
+            onOpenDetail={onOpenDetail}
+            embedded
+          />
+        </section>
       ) : null}
     </div>
   );

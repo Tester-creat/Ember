@@ -86,14 +86,14 @@ export default function Stats() {
 
   if (entries.length < 3) {
     return (
-      <div className="section page-inner">
-        <div className="section__head">
+      <div className="section page-inner stats-page">
+        <div className="section__head stats-page__head">
           <div>
-            <div className="section__eyebrow">Personal dashboard</div>
-            <h2 className="section__title">My Statistics</h2>
+            <div className="stats-page__eyebrow">Personal dashboard</div>
+            <h2 className="stats-page__title">My Statistics</h2>
           </div>
         </div>
-        <div className="empty-state">
+        <div className="empty-state stats-empty-state">
           <div className="empty-state__icon">Stats</div>
           <div className="empty-state__title">Not enough data yet</div>
           <p>Your stats will appear here once you&apos;ve added some anime to your library.</p>
@@ -103,23 +103,24 @@ export default function Stats() {
   }
 
   return (
-    <div className="section page-inner">
-      <div className="section__head">
+    <div className="section page-inner stats-page">
+      <div className="section__head stats-page__head">
         <div>
-          <div className="section__eyebrow">Personal dashboard</div>
-          <h2 className="section__title">My Statistics</h2>
+          <div className="stats-page__eyebrow">Personal dashboard</div>
+          <h2 className="stats-page__title">My Statistics</h2>
         </div>
       </div>
 
       <div className="stats-grid">
-        <StatCard label="Total Anime" value={stats.total} sub="Titles in your library" />
+        <StatCard tone="teal" label="Total Anime" value={stats.total} sub="Titles in your library" />
         <StatCard
+          tone="gold"
           label="Episodes Watched"
           value={stats.totalEpisodesWatched}
           sub="Tracked progress across all entries"
         />
-        <StatCard label="Average Rating" value={stats.averageRating} sub="Mean of all rated titles" />
-        <StatCard label="Completion Rate" value={stats.completionRate} sub="Entries marked completed" />
+        <StatCard tone="sky" label="Average Rating" value={stats.averageRating} sub="Mean of all rated titles" />
+        <StatCard tone="coral" label="Completion Rate" value={stats.completionRate} sub="Entries marked completed" />
       </div>
 
       <div className="stats-layout">
@@ -209,9 +210,9 @@ export default function Stats() {
   );
 }
 
-function StatCard({ label, value, sub }) {
+function StatCard({ label, value, sub, tone = 'teal' }) {
   return (
-    <div className="stats-card">
+    <div className="stats-card" data-tone={tone}>
       <span className="stats-card__label">{label}</span>
       <span className="stats-card__value">{value}</span>
       <span className="stats-card__sub">{sub}</span>

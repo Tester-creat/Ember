@@ -6,6 +6,7 @@ const MEDIA_CARD_FIELDS = `
   id
   idMal
   title { romaji english native }
+  synonyms
   coverImage { extraLarge large medium }
   episodes
   nextAiringEpisode { episode }
@@ -133,14 +134,16 @@ export async function searchAnime(query) {
 export const WATCH_ORDER_QUERY = `
 query($id: Int) {
   Media(id: $id, type: ANIME) {
-    title { romaji english }
+    title { romaji english native }
+    synonyms
     relations {
       edges {
         relationType
         node {
           id
           type
-          title { romaji english }
+          title { romaji english native }
+          synonyms
           coverImage { medium large }
           format
           status
@@ -237,7 +240,7 @@ export async function resolveAnikotoSeries(anilistId, animeContext) {
     }
   }
 
-  throw new Error("Could not resolve Anikoto series ID");
+  throw new Error(`Could not resolve Anikoto series ID after scanning ${maxPages} recent pages`);
 }
 
 const SERIES_CACHE = new Map();

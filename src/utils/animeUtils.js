@@ -17,14 +17,24 @@ export function collectTitleNeedles(ctx, anilistCache = {}) {
     const n = _normTitle(raw);
     if (n.length >= 2) needles.add(n);
   };
+  const addVariants = (raw) => {
+    const n = _normTitle(raw);
+    if (!n) return;
+    add(n);
+    add(n.replace(/\bseason\s+\d+\b/g, ""));
+    add(n.replace(/\bpart\s+\d+\b/g, ""));
+    add(n.replace(/\b\d+(st|nd|rd|th)\s+season\b/g, ""));
+    add(n.replace(/\b(tv|movie|ova|ona|special)\b/g, ""));
+  };
   if (!ctx) return [];
-  if (typeof ctx.title === "string") add(ctx.title);
-  if (typeof ctx.titleEnglish === "string") add(ctx.titleEnglish);
+  if (typeof ctx.title === "string") addVariants(ctx.title);
+  if (typeof ctx.titleEnglish === "string") addVariants(ctx.titleEnglish);
   if (ctx.title && typeof ctx.title === "object") {
-    add(ctx.title.romaji);
-    add(ctx.title.english);
-    add(ctx.title.native);
+    addVariants(ctx.title.romaji);
+    addVariants(ctx.title.english);
+    addVariants(ctx.title.native);
   }
+  if (Array.isArray(ctx.synonyms)) ctx.synonyms.forEach(addVariants);
   const aid = String(ctx.anilistId || ctx.id || "");
   if (aid) {
     const c = anilistCache[aid];
@@ -34,7 +44,7 @@ export function collectTitleNeedles(ctx, anilistCache = {}) {
       if (c.title?.romaji) add(c.title.romaji);
       if (c.title?.english) add(c.title.english);
       if (c.title?.native) add(c.title.native);
-      if (Array.isArray(c.synonyms)) c.synonyms.forEach(add);
+      if (Array.isArray(c.synonyms)) c.synonyms.forEach(addVariants);
     }
   }
   return [...needles];
@@ -110,6 +120,7 @@ export function normalizeAnime(m) {
     averageScore:    avgScore,
     description:     m.description || "",
     genres:          genres,
+    synonyms:        Array.isArray(m.synonyms) ? m.synonyms : [],
     year:            m.seasonYear || m.year || (m.startDate ? m.startDate.year : 0) || 0,
     season:          m.season || "",
     status:          m.status || ""

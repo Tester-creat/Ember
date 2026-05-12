@@ -12,9 +12,11 @@ export default function Library(props) {
 }
 
 function LibraryInner({ onOpenDetail }) {
-  const { userData, libraryFilter, setLibraryFilter } = useAnimeData();
+  const { userData, libraryFilter, setLibraryFilter, saveData } = useAnimeData();
   const [visibleCount, setVisibleCount] = useState(BATCH_SIZE);
+  const [transferMessage, setTransferMessage] = useState('');
   const observerTarget = useRef(null);
+  const importInputRef = useRef(null);
 
   const entries = useMemo(
     () => Object.values(userData).filter((entry) => entry && entry.id),
@@ -67,6 +69,48 @@ function LibraryInner({ onOpenDetail }) {
   const showLoadMoreSentinel =
     libraryFilter === 'all' ? completedCountInAll > visibleCount : filtered.length > visibleCount;
 
+  const handleExport = () => {
+    const payload = {
+      app: 'Ember',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      userData,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `ember-library-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setTransferMessage(`Exported ${entries.length} library entries.`);
+  };
+
+  const handleImportFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    try {
+      const parsed = JSON.parse(await file.text());
+      const importedData = parsed?.userData && typeof parsed.userData === 'object'
+        ? parsed.userData
+        : parsed;
+
+      if (!importedData || typeof importedData !== 'object' || Array.isArray(importedData)) {
+        throw new Error('Import file does not contain an Ember library object.');
+      }
+
+      const cleaned = Object.fromEntries(
+        Object.entries(importedData).filter(([, entry]) => entry && entry.id)
+      );
+      saveData(cleaned);
+      setTransferMessage(`Imported ${Object.keys(cleaned).length} library entries.`);
+    } catch (error) {
+      setTransferMessage(error.message || 'Import failed.');
+    }
+  };
+
   useEffect(() => {
     const element = observerTarget.current;
     if (!element) return undefined;
@@ -92,14 +136,27 @@ function LibraryInner({ onOpenDetail }) {
           <div className="section__title">My Library</div>
         </div>
         <div className="section__actions">
-          <button type="button" className="btn btn--glass btn--sm" disabled>
+          <button type="button" className="btn btn--glass btn--sm" onClick={handleExport}>
             Export
           </button>
-          <button type="button" className="btn btn--glass btn--sm" disabled>
+          <button
+            type="button"
+            className="btn btn--glass btn--sm"
+            onClick={() => importInputRef.current?.click()}
+          >
             Import
           </button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json,.json"
+            hidden
+            onChange={handleImportFile}
+          />
         </div>
       </div>
+
+      {transferMessage ? <p className="library-row-hint">{transferMessage}</p> : null}
 
       <div className="filter-bar">
         {LIBRARY_FILTER_STATUSES.map((status) => {
