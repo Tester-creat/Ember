@@ -5,7 +5,7 @@
 
 export const MARQUEE_MAX_ITEMS = 28;
 export const TRENDING_MARQUEE_ITEMS = 24;
-export const COMPLETED_MARQUEE_ITEMS = Infinity;
+export const COMPLETED_MARQUEE_ITEMS = 32;
 export const CONTINUE_WATCHING_HOME = 15;
 export const HERO_ROTATION_MAX = 8;
 export const HERO_BACKFILL_TRENDING = 6;

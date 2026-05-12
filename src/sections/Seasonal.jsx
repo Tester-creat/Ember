@@ -43,19 +43,30 @@ export default function Seasonal({ onOpenDetail }) {
   }, [season, year]);
 
   useEffect(() => {
+    const controller = new AbortController();
+
     const fetchSeasonal = async () => {
       setSeasonalData((prev) => ({ ...prev, loading: true, error: null }));
       try {
         const response = await fetch('https://graphql.anilist.co', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
           body: JSON.stringify({
             query: SEASONAL_QUERY,
             variables: { season, seasonYear: year, page: 1 },
           }),
         });
 
+        if (!response.ok) {
+          throw new Error(`Seasonal request failed: HTTP ${response.status}`);
+        }
+
         const json = await response.json();
+        if (json?.errors?.length) {
+          throw new Error(json.errors[0]?.message || 'AniList returned an error.');
+        }
+
         const results = (json?.data?.Page?.media || []).map(normalizeAnime).filter(Boolean);
 
         setSeasonalData({
@@ -68,11 +79,14 @@ export default function Seasonal({ onOpenDetail }) {
           hasMore: Boolean(json?.data?.Page?.pageInfo?.hasNextPage),
         });
       } catch (error) {
+        if (error.name === 'AbortError') return;
         setSeasonalData((prev) => ({ ...prev, loading: false, error: error.message }));
       }
     };
 
     fetchSeasonal();
+
+    return () => controller.abort();
   }, [season, setSeasonalData, year]);
 
   const seasons = ['WINTER', 'SPRING', 'SUMMER', 'FALL'];
@@ -127,6 +141,11 @@ export default function Seasonal({ onOpenDetail }) {
         <div className="loading-state">
           <div className="spinner" />
           <p>Loading the season...</p>
+        </div>
+      ) : seasonalData.error ? (
+        <div className="empty-state">
+          <div className="empty-state__title">Seasonal feed unavailable</div>
+          <p>{seasonalData.error}</p>
         </div>
       ) : (
         <>

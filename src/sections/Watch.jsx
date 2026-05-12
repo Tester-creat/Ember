@@ -89,6 +89,7 @@ export default function Watch() {
 
     const resolve = async () => {
       setLoading(true);
+      setEmbedUrl(null);
       setResolvingMessage('Initializing player...');
       setWatchPlayerError(null);
 
@@ -269,6 +270,8 @@ export default function Watch() {
               ref={iframeRef}
               src={embedUrl}
               allow="autoplay; fullscreen"
+              referrerPolicy="no-referrer"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-presentation allow-popups allow-popups-to-escape-sandbox"
               data-watch-iframe
             />
           ) : null}

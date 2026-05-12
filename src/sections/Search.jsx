@@ -10,26 +10,47 @@ export default function Search({ onOpenDetail }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     if (query.length < 3) {
       return;
     }
 
+    let isActive = true;
     const delayDebounceFn = setTimeout(async () => {
       setLoading(true);
+      setError(null);
       try {
         const res = await searchAnime(query);
-        setResults(res);
+        if (isActive) setResults(res);
       } catch (e) {
         console.error(e);
+        if (isActive) {
+          setResults([]);
+          setError(e.message || 'Search is unavailable right now.');
+        }
       } finally {
-        setLoading(false);
+        if (isActive) setLoading(false);
       }
     }, 500);
 
-    return () => clearTimeout(delayDebounceFn);
+    return () => {
+      isActive = false;
+      clearTimeout(delayDebounceFn);
+    };
   }, [query]);
+
+  const handleQueryChange = (event) => {
+    const nextQuery = event.target.value;
+    setQuery(nextQuery);
+
+    if (nextQuery.length < 3) {
+      setLoading(false);
+      setError(null);
+      setResults([]);
+    }
+  };
 
   const displayResults = query.length < 3 ? [] : results;
 
@@ -48,7 +69,7 @@ export default function Search({ onOpenDetail }) {
           className="search-input--page"
           placeholder="Search for anime..."
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={handleQueryChange}
           autoFocus
         />
 
@@ -66,7 +87,14 @@ export default function Search({ onOpenDetail }) {
           />
         )}
 
-        {!loading && query.length >= 3 && displayResults.length === 0 && (
+        {!loading && error ? (
+          <div className="empty-state">
+            <div className="empty-state__title">Search unavailable</div>
+            <p>{error}</p>
+          </div>
+        ) : null}
+
+        {!loading && !error && query.length >= 3 && displayResults.length === 0 && (
           <div className="empty-state">
             <p>No results found for &quot;{query}&quot;</p>
           </div>
@@ -94,7 +122,7 @@ function SearchGrid({ results, query, onOpenDetail }) {
     <>
       {results.length > SEARCH_RESULTS_MAX && (
         <p className="search-cap-hint">
-          Showing first {SEARCH_RESULTS_MAX} matches for performance — refine your search to narrow
+          Showing first {SEARCH_RESULTS_MAX} matches for performance - refine your search to narrow
           results.
         </p>
       )}
