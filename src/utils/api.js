@@ -77,6 +77,11 @@ export const STREAM_PROVIDERS = [
       `https://vidsrc.icu/embed/anime/${anilistId}/${ep}/${lang === 'dub' ? 1 : 0}`,
   },
   {
+    name: "TryEmbed",
+    buildUrl: (anilistId, ep, lang) =>
+      `https://tryembed.us.cc/embed/anime/${anilistId}/${ep}/${sd(lang)}`,
+  },
+  {
     name: "VidLink",
     usesMalId: true,
     // VidLink keys off the MyAnimeList id; skipped (empty url) when unknown.
