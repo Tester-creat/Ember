@@ -8,7 +8,13 @@ import {
   resolveAnikotoSeries,
   STREAM_PROVIDERS,
 } from '../utils/api';
-import { getDisplayTitle, getStatusTransitionPatch, normalizeAnime } from '../utils/animeUtils';
+import {
+  formatSortRank,
+  getDisplayTitle,
+  getStatusTransitionPatch,
+  normalizeAnime,
+  parseFranchise,
+} from '../utils/animeUtils';
 
 const EPISODE_GROUP_SIZE = 40;
 const PROVIDER_FALLBACK_TIMEOUT_MS = 30000;
@@ -54,6 +60,7 @@ export default function Watch() {
   const [loading, setLoading] = useState(true);
   const [resolvingMessage, setResolvingMessage] = useState('');
   const [watchOrder, setWatchOrder] = useState([]);
+  const [watchOrderMode, setWatchOrderMode] = useState('recommended');
   const [episodeGroupOverride, setEpisodeGroupOverride] = useState(null);
   const [retryNonce, setRetryNonce] = useState(0);
   const [toastMessage, setToastMessage] = useState('');
@@ -248,6 +255,55 @@ export default function Watch() {
     });
   }, [hasKnownEpisodeCount, totalEpisodeGroups, totalEpisodes]);
 
+  const watchOrderItems = useMemo(() => {
+    if (!entry) return [];
+
+    const current = {
+      node: {
+        ...entry,
+        id: entry.anilistId || entry.id,
+        type: 'ANIME',
+      },
+      relationType: 'CURRENT',
+    };
+    const related = watchOrder.filter((edge) => String(edge?.node?.id) !== String(entry.anilistId));
+    const items = [current, ...related];
+
+    // Derive sort keys from whatever fields the node exposes (the current
+    // entry and AniList relation nodes have slightly different shapes).
+    const withKeys = items.map((item) => {
+      const node = item.node || {};
+      const date = node.startDate || {};
+      const year = date.year || node.seasonYear || node.year || 0;
+      const release = year
+        ? year * 10000 + (date.month || 0) * 100 + (date.day || 0)
+        : Number.MAX_SAFE_INTEGER;
+      const title = getDisplayTitle(node);
+      return {
+        item,
+        release,
+        season: parseFranchise(title)?.season || 0,
+        format: formatSortRank(node),
+        title,
+      };
+    });
+
+    withKeys.sort((a, b) => {
+      if (watchOrderMode === 'release') {
+        if (a.release !== b.release) return a.release - b.release;
+        if (a.format !== b.format) return a.format - b.format;
+        return a.title.localeCompare(b.title);
+      }
+      // Recommended: seasons/parts in order, TV before movies/specials, then by date.
+      if (a.season !== b.season) return a.season - b.season;
+      if (a.format !== b.format) return a.format - b.format;
+      if (a.release !== b.release) return a.release - b.release;
+      return a.title.localeCompare(b.title);
+    });
+
+    return withKeys.map((entryKey) => entryKey.item);
+  }, [entry, watchOrder, watchOrderMode]);
+
   if (!entry) return null;
 
   const activeProvider = STREAM_PROVIDERS[currentProvider % STREAM_PROVIDERS.length];
@@ -267,9 +323,14 @@ export default function Watch() {
       )
     : Array.from({ length: 100 }, (_, index) => index + 1);
 
+  // Episodes tick green automatically from saved progress, and every episode
+  // ticks once the series is marked completed.
+  const isCompleted = entry.status === 'completed';
   const watchedEpisodes = new Set((entry.watchedEpisodes || []).map(Number));
   const isEpisodeWatched = (episode) =>
-    watchedEpisodes.has(Number(episode)) || episode <= (entry.episodesWatched || 0);
+    isCompleted ||
+    watchedEpisodes.has(Number(episode)) ||
+    episode <= (entry.episodesWatched || 0);
 
   const handleEpisodeGroupChange = (event) => {
     const nextGroup = parseInt(event.target.value, 10);
@@ -306,21 +367,6 @@ export default function Watch() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const watchOrderItems = (() => {
-    const current = {
-      node: {
-        ...entry,
-        id: entry.anilistId || entry.id,
-        type: 'ANIME',
-      },
-      relationType: 'CURRENT',
-    };
-    const related = watchOrder.filter((edge) => String(edge?.node?.id) !== String(entry.anilistId));
-
-    // [FIX] Bug 4 - always render the full relation list in stored order. The
-    // current entry is de-duped but never used to slice/filter sibling titles.
-    return [current, ...related];
-  })();
 
   return (
     <div className="watch-layout page-inner">
@@ -376,66 +422,136 @@ export default function Watch() {
           </div>
 
           <div className="watch-actions">
-            <div className="watch-actions__group">
-              <button
-                className="btn btn--glass btn--sm"
-                onClick={() => {
-                  setEpisodeGroupOverride(null);
-                  setCurrentEpisode((prev) => Math.max(1, prev - 1));
-                }}
-                disabled={currentEpisode <= 1}
-              >
-                Previous
-              </button>
-              <button
-                className="btn btn--glass btn--sm"
-                onClick={() => {
-                  setEpisodeGroupOverride(null);
-                  setCurrentEpisode((prev) => prev + 1);
-                }}
-                disabled={totalEpisodes !== 9999 && currentEpisode >= totalEpisodes}
-              >
-                Next
-              </button>
+            <div className="watch-control">
+              <span className="watch-control__label">Episode</span>
+              <div className="watch-seg">
+                <button
+                  type="button"
+                  className="watch-seg__btn"
+                  onClick={() => {
+                    setEpisodeGroupOverride(null);
+                    setCurrentEpisode((prev) => Math.max(1, prev - 1));
+                  }}
+                  disabled={currentEpisode <= 1}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true">
+                    <path d="m15 18-6-6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  Prev
+                </button>
+                <span className="watch-seg__divider" aria-hidden="true" />
+                <button
+                  type="button"
+                  className="watch-seg__btn"
+                  onClick={() => {
+                    setEpisodeGroupOverride(null);
+                    setCurrentEpisode((prev) => prev + 1);
+                  }}
+                  disabled={totalEpisodes !== 9999 && currentEpisode >= totalEpisodes}
+                >
+                  Next
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true">
+                    <path d="m9 18 6-6-6-6" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              </div>
             </div>
 
-            <div className="watch-actions__group">
+            <div className="watch-control">
+              <span className="watch-control__label">Audio</span>
+              <div className="watch-toggle" role="group" aria-label="Audio language">
+                <button
+                  type="button"
+                  className={`watch-toggle__opt ${currentLanguage === 'sub' ? 'is-active' : ''}`}
+                  aria-pressed={currentLanguage === 'sub'}
+                  onClick={() => setCurrentLanguage('sub')}
+                >
+                  Subbed
+                </button>
+                <button
+                  type="button"
+                  className={`watch-toggle__opt ${currentLanguage === 'dub' ? 'is-active' : ''}`}
+                  aria-pressed={currentLanguage === 'dub'}
+                  onClick={() => setCurrentLanguage('dub')}
+                >
+                  Dubbed
+                </button>
+              </div>
+            </div>
+
+            <div className="watch-control">
+              <span className="watch-control__label">Server</span>
+              <div className="watch-select">
+                <select
+                  className="watch-select__input"
+                  value={currentProvider % STREAM_PROVIDERS.length}
+                  onChange={(event) => {
+                    autoFallbackAttemptsRef.current = 0;
+                    setCurrentProvider(Number(event.target.value));
+                  }}
+                  aria-label="Streaming server"
+                >
+                  {STREAM_PROVIDERS.map((provider, index) => (
+                    <option key={provider.name} value={index}>
+                      {provider.name}
+                    </option>
+                  ))}
+                </select>
+                <svg className="watch-select__caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true">
+                  <path d="m6 9 6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+            </div>
+
+            <div className="watch-actions__end">
               <button
+                type="button"
+                className="btn btn--glass btn--sm"
+                onClick={() => markEpisodeWatched(currentEpisode)}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true" style={{ width: 16, height: 16 }}>
+                  <path d="m5 12.5 4.5 4.5L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Mark Watched
+              </button>
+
+              <button
+                type="button"
                 className="btn btn--ghost btn--sm"
-                onClick={() => setCurrentLanguage((prev) => (prev === 'sub' ? 'dub' : 'sub'))}
-              >
-                {currentLanguage.toUpperCase()}
-              </button>
-              <button
-                className="btn btn--primary btn--sm"
                 onClick={() => {
-                  autoFallbackAttemptsRef.current = 0;
-                  setCurrentProvider((prev) => (prev + 1) % STREAM_PROVIDERS.length);
+                  setCurrentWatchId(null);
+                  setCurrentTab('home');
                 }}
               >
-                {activeProvider.name}
+                Close Player
               </button>
             </div>
-
-            <button className="btn btn--glass btn--sm" onClick={() => markEpisodeWatched(currentEpisode)}>
-              Mark Watched
-            </button>
-
-            <button
-              className="btn btn--ghost btn--sm watch-actions__close"
-              onClick={() => {
-                setCurrentWatchId(null);
-                setCurrentTab('home');
-              }}
-            >
-              Close Player
-            </button>
           </div>
         </div>
 
         {watchOrderItems.length > 1 ? (
           <div className="wo-panel">
-            <div className="wo-panel__title">Watch Order</div>
+            <div className="wo-panel__head">
+              <div className="wo-panel__title">Watch Order</div>
+              <div className="watch-toggle watch-toggle--sm" role="group" aria-label="Watch order">
+                <button
+                  type="button"
+                  className={`watch-toggle__opt ${watchOrderMode === 'recommended' ? 'is-active' : ''}`}
+                  aria-pressed={watchOrderMode === 'recommended'}
+                  onClick={() => setWatchOrderMode('recommended')}
+                >
+                  Recommended
+                </button>
+                <button
+                  type="button"
+                  className={`watch-toggle__opt ${watchOrderMode === 'release' ? 'is-active' : ''}`}
+                  aria-pressed={watchOrderMode === 'release'}
+                  onClick={() => setWatchOrderMode('release')}
+                >
+                  Release
+                </button>
+              </div>
+            </div>
             <div className="wo-cards">
               {watchOrderItems.map((edge, index) => {
                 const node = normalizeAnime(edge.node) || edge.node;
@@ -509,26 +625,7 @@ export default function Watch() {
                     <svg className="ep-row__check" viewBox="0 0 16 16" aria-hidden="true">
                       <path d="M13.5 4.5 6.5 11.5 2.5 7.5" />
                     </svg>
-                  ) : (
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      className="ep-row__mark"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        markEpisodeWatched(episode);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          markEpisodeWatched(episode);
-                        }
-                      }}
-                    >
-                      Mark
-                    </span>
-                  )}
+                  ) : null}
                 </span>
               </button>
             );

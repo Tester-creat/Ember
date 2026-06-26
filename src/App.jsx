@@ -4,7 +4,6 @@ import CoverArt from './components/CoverArt';
 import Hero from './components/Hero';
 import MobileBar from './components/MobileBar';
 import Navbar from './components/Navbar';
-import PerformanceHud from './components/PerformanceHud';
 import Browse from './sections/Browse';
 import Home from './sections/Home';
 import Library from './sections/Library';
@@ -187,7 +186,6 @@ function AppContent() {
       </main>
 
       <MobileBar />
-      <PerformanceHud />
 
       {selectedAnime ? (
         <div className="overlay is-open" onClick={() => setSelectedAnime(null)}>
