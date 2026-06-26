@@ -149,7 +149,7 @@ export default function Watch() {
           }
         } else {
           setResolvingMessage(`Loading from ${provider.name}...`);
-          const url = provider.buildUrl(entry.anilistId, currentEpisode, currentLanguage);
+          const url = provider.buildUrl(entry.anilistId, currentEpisode, currentLanguage, entry);
           if (typeof url !== 'string' || url.trim() === '') {
             cycleProvider(`${provider.name} returned an empty URL`);
             return;

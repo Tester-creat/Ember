@@ -22,35 +22,73 @@ const MEDIA_CARD_FIELDS = `
   bannerImage
 `;
 
+const sd = (lang) => (lang === 'dub' ? 'dub' : 'sub');
+
 // Verified against the live VidNest docs on 2026-05-11.
 export function buildVidNestUrl(anilistId, ep, lang = 'sub') {
-  return `https://vidnest.fun/anime/${anilistId}/${ep}/${lang}`;
+  return `https://vidnest.fun/anime/${anilistId}/${ep}/${sd(lang)}`;
 }
 
 // Verified against the live MegaPlay API docs on 2026-05-11.
 export function buildMegaPlayAniListUrl(anilistId, ep, lang = 'sub') {
-  return `https://megaplay.buzz/stream/ani/${anilistId}/${ep}/${lang}`;
+  return `https://megaplay.buzz/stream/ani/${anilistId}/${ep}/${sd(lang)}`;
 }
 
+/**
+ * Streaming providers, ordered by observed reliability. Each embeds in an iframe
+ * and is keyed off the AniList id (or MAL id for VidLink) + episode + sub/dub.
+ * The Watch player cycles to the next provider automatically on failure.
+ *
+ * buildUrl(anilistId, episode, lang, entry) — `entry` is the saved library item
+ * and is only needed by providers that require a MAL id. Provider URL shapes
+ * verified 2026-06-27.
+ */
 export const STREAM_PROVIDERS = [
-  { 
-    name: "MegaPlay", 
+  {
+    name: "MegaPlay",
     isAnikoto: true,
     buildUrl: (anikotoUrl) => anikotoUrl,
     buildAniListUrl: buildMegaPlayAniListUrl,
   },
-  { 
-    name: "VidNest", 
-    buildUrl: buildVidNestUrl,
+  {
+    name: "VidNest",
+    buildUrl: (anilistId, ep, lang) => buildVidNestUrl(anilistId, ep, lang),
   },
-  { 
-    name: "VidSrc", 
-    buildUrl: (anilistId, ep, lang) => `https://vidsrc.cc/v2/embed/anime/${anilistId}/${ep}${lang === 'dub' ? '/dub' : ''}` 
+  {
+    name: "VidSrc",
+    // vidsrc.cc requires an explicit /sub or /dub segment.
+    buildUrl: (anilistId, ep, lang) =>
+      `https://vidsrc.cc/v2/embed/anime/${anilistId}/${ep}/${sd(lang)}`,
   },
-  { 
-    name: "AnimeSuge", 
-    buildUrl: (anilistId, ep) => `https://animesuge.to/embed/anilist/${anilistId}/${ep}` 
-  }
+  {
+    name: "Videasy",
+    buildUrl: (anilistId, ep, lang) =>
+      `https://player.videasy.net/anime/${anilistId}/${ep}?color=ff6a3d&episodeSelector=true&nextEpisode=true${lang === 'dub' ? '&dub=true' : ''}`,
+  },
+  {
+    name: "VidPlus",
+    buildUrl: (anilistId, ep, lang) =>
+      `https://player.vidplus.to/embed/anime/${anilistId}/${ep}?dub=${lang === 'dub'}`,
+  },
+  {
+    name: "VidSrc.icu",
+    // Trailing flag: 0 = sub, 1 = dub.
+    buildUrl: (anilistId, ep, lang) =>
+      `https://vidsrc.icu/embed/anime/${anilistId}/${ep}/${lang === 'dub' ? 1 : 0}`,
+  },
+  {
+    name: "VidLink",
+    usesMalId: true,
+    // VidLink keys off the MyAnimeList id; skipped (empty url) when unknown.
+    buildUrl: (anilistId, ep, lang, entry) => {
+      const malId = entry?.idMal;
+      return malId ? `https://vidlink.pro/anime/${malId}/${ep}/${sd(lang)}` : '';
+    },
+  },
+  {
+    name: "AnimeSuge",
+    buildUrl: (anilistId, ep) => `https://animesuge.to/embed/anilist/${anilistId}/${ep}`,
+  },
 ];
 
 
