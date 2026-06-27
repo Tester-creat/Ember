@@ -6,6 +6,7 @@ import {
   fetchAnikotoEpisode,
   fetchWatchOrder,
   resolveAnikotoSeries,
+  resolveSlugEmbed,
   STREAM_PROVIDERS,
 } from '../utils/api';
 import {
@@ -18,6 +19,19 @@ import {
 
 const EPISODE_GROUP_SIZE = 40;
 const PROVIDER_FALLBACK_TIMEOUT_MS = 30000;
+
+// Only relation types that belong to the same story/franchise watch order.
+// Excludes OTHER/CHARACTER/etc., which surface unrelated crossover specials
+// (e.g. the Toriko x One Piece x Dragon Ball Z special on One Piece).
+const WATCH_ORDER_RELATIONS = new Set([
+  'PREQUEL',
+  'SEQUEL',
+  'PARENT',
+  'SIDE_STORY',
+  'ALTERNATIVE',
+  'SUMMARY',
+  'SPIN_OFF',
+]);
 
 function getNodeYear(node) {
   return node?.year || node?.seasonYear || node?.startDate?.year || 0;
@@ -147,6 +161,20 @@ export default function Watch() {
             setResolvingMessage('Primary source unavailable, trying direct AniList fallback...');
             setEmbedUrl(buildMegaPlayAniListUrl(entry.anilistId, currentEpisode, currentLanguage));
           }
+        } else if (provider.slugProvider) {
+          setResolvingMessage(`Finding ${getDisplayTitle(entry)} on ${provider.name}...`);
+          try {
+            const url = await resolveSlugEmbed(provider, entry, currentEpisode);
+            if (typeof url !== 'string' || url.trim() === '') {
+              cycleProvider(`${provider.name} had no match`);
+              return;
+            }
+            setEmbedUrl(url.trim());
+          } catch (slugError) {
+            console.warn(`[Watch] ${provider.name} slug resolution failed`, slugError);
+            cycleProvider(`${provider.name} resolution failed`);
+            return;
+          }
         } else {
           setResolvingMessage(`Loading from ${provider.name}...`);
           const url = provider.buildUrl(entry.anilistId, currentEpisode, currentLanguage, entry);
@@ -238,7 +266,12 @@ export default function Watch() {
 
     fetchWatchOrder(entry.anilistId)
       .then((edges) => {
-        setWatchOrder(edges.filter((edge) => edge.node.type === 'ANIME'));
+        setWatchOrder(
+          edges.filter(
+            (edge) =>
+              edge?.node?.type === 'ANIME' && WATCH_ORDER_RELATIONS.has(edge.relationType)
+          )
+        );
       })
       .catch(() => {
         setWatchOrder([]);
@@ -379,7 +412,8 @@ export default function Watch() {
               ref={iframeRef}
               src={embedUrl}
               title={`${getDisplayTitle(entry)} episode ${currentEpisode} on ${activeProvider.name}`}
-              allow="autoplay; fullscreen"
+              allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+              allowFullScreen
               referrerPolicy="no-referrer"
               data-watch-iframe
             />

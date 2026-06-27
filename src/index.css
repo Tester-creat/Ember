@@ -1990,10 +1990,11 @@ a {
   padding: 0 42px 0 16px;
   border: 1px solid var(--border-strong);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  /* Solid dark base (not just translucent) so the closed control is always
+     legible, even where backdrop-filter is unsupported. */
+  background: #18181e;
   color: var(--text);
+  color-scheme: dark;
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
@@ -2003,7 +2004,24 @@ a {
 }
 
 .watch-select__input:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: #20202a;
+}
+
+/* Force the native option popup to render dark on every device/browser. */
+.watch-select__input option,
+.episode-group-select option,
+.field-control option,
+.overlay-select option {
+  background-color: #15151b;
+  color: #f6f6f8;
+}
+
+.field-control,
+.search-input--page,
+.episode-group-select,
+.overlay-select,
+.overlay-textarea {
+  color-scheme: dark;
 }
 
 .watch-select__input:focus {

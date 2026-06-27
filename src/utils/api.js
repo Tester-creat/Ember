@@ -1,5 +1,5 @@
 
-import { normalizeAnime, scoreAnikotoTitleMatch, collectTitleNeedles, pickAnikotoEpisode } from './animeUtils';
+import { normalizeAnime, scoreAnikotoTitleMatch, collectTitleNeedles, pickAnikotoEpisode, buildSlugCandidates } from './animeUtils';
 
 const ANILIST_API = "https://graphql.anilist.co";
 const MEDIA_CARD_FIELDS = `
@@ -93,6 +93,18 @@ export const STREAM_PROVIDERS = [
   {
     name: "AnimeSuge",
     buildUrl: (anilistId, ep) => `https://animesuge.to/embed/anilist/${anilistId}/${ep}`,
+  },
+  // Slug-based providers (resolved via title -> slug, then verified). Kept last
+  // as best-effort extras behind the reliable id-based sources above.
+  {
+    name: "2Anime",
+    slugProvider: true,
+    buildFromSlug: (slug, ep) => `https://2anime.xyz/embed/${slug}-episode-${ep}`,
+  },
+  {
+    name: "AutoEmbed",
+    slugProvider: true,
+    buildFromSlug: (slug, ep) => `https://anime.autoembed.cc/embed/${slug}-episode-${ep}`,
   },
 ];
 
@@ -307,6 +319,69 @@ export async function fetchAnikotoEpisode(seriesId, epNum, lang = 'sub') {
   if (typeof embedUrl !== 'string' || embedUrl.trim() === '') {
     throw new Error(`No ${lang} embed found for episode ${epNum}`);
   }
-  
+
   return embedUrl.trim();
+}
+
+// --- Slug-based provider resolution (title -> slug, like the Anikoto mapping) ---
+
+const SLUG_MAPPING_KEY = "ember_slug_map_v1";
+
+function getStoredSlugMap() {
+  try { return JSON.parse(localStorage.getItem(SLUG_MAPPING_KEY)) || {}; } catch { return {}; }
+}
+
+function saveSlugMap(map) {
+  localStorage.setItem(SLUG_MAPPING_KEY, JSON.stringify(map));
+}
+
+// Public CORS proxy so we can read the response body cross-origin for verification.
+function corsProxyFetch(url) {
+  return fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`);
+}
+
+async function slugUrlLooksValid(url) {
+  try {
+    const res = await corsProxyFetch(url);
+    if (!res.ok) return false;
+    const body = (await res.text()).slice(0, 8000).toLowerCase();
+    if (body.length < 400) return false;
+    if (/(404|not found|page not found|no results|doesn't exist|couldn't be found|video not found)/.test(body)) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve a slug-based provider's embed URL for a library entry. Tries ranked
+ * slug guesses (verified via probe of episode 1), caches the winning slug, and
+ * falls back to the best guess when verification is unavailable.
+ */
+export async function resolveSlugEmbed(provider, entry, epNum) {
+  const id = String(entry?.anilistId || entry?.id || "");
+  const cacheKey = `${provider.name}:${id}`;
+  const map = getStoredSlugMap();
+  if (map[cacheKey]) return provider.buildFromSlug(map[cacheKey], epNum);
+
+  const candidates = buildSlugCandidates(entry).slice(0, 4);
+  if (candidates.length === 0) {
+    throw new Error(`No title available to resolve a ${provider.name} slug`);
+  }
+
+  for (const slug of candidates) {
+    // Probe episode 1 (present whenever the slug is right), then cache the slug.
+    const probeUrl = provider.buildFromSlug(slug, 1);
+    if (await slugUrlLooksValid(probeUrl)) {
+      map[cacheKey] = slug;
+      saveSlugMap(map);
+      return provider.buildFromSlug(slug, epNum);
+    }
+  }
+
+  // Verification unavailable (proxy down/blocked) or no confident match:
+  // fall back to the best-guess slug so the player still gets a chance.
+  return provider.buildFromSlug(candidates[0], epNum);
 }
