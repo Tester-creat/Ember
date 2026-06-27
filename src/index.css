@@ -1850,6 +1850,18 @@ a {
   margin-top: var(--space-2);
 }
 
+.watch-open-link {
+  color: var(--ember-bright);
+  font-weight: 700;
+  white-space: nowrap;
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--transition-fast);
+}
+
+.watch-open-link:hover {
+  border-bottom-color: var(--ember-bright);
+}
+
 .watch-actions {
   margin-top: var(--space-5);
   align-items: flex-end;

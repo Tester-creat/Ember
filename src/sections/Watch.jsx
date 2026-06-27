@@ -453,6 +453,19 @@ export default function Watch() {
           <div className="watch-meta__info">
             If the player opens but stays blank, switch provider. Some embeds load an error page
             without reporting playback failure.
+            {embedUrl && !loading && !watchPlayerError ? (
+              <>
+                {' '}
+                <a
+                  className="watch-open-link"
+                  href={embedUrl}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                >
+                  Open this server in a new tab ↗
+                </a>
+              </>
+            ) : null}
           </div>
 
           <div className="watch-actions">
