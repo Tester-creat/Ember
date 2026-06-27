@@ -293,6 +293,8 @@ export default function Watch() {
   if (!entry) return null;
 
   const activeProvider = STREAM_PROVIDERS[currentProvider % STREAM_PROVIDERS.length];
+  const ambientArt = entry.banner || entry.cover || '';
+  const metaScore = entry.averageScore ? (entry.averageScore / 10).toFixed(1) : null;
   const derivedEpisodeGroup = hasKnownEpisodeCount
     ? Math.floor((Math.max(1, currentEpisode) - 1) / EPISODE_GROUP_SIZE)
     : 0;
@@ -357,6 +359,14 @@ export default function Watch() {
   return (
     <div className="watch-layout page-inner">
       <div className="watch-main">
+        {ambientArt ? (
+          <div
+            className="watch-ambient"
+            style={{ backgroundImage: `url(${ambientArt})` }}
+            aria-hidden="true"
+          />
+        ) : null}
+        <div className="watch-stage">
         <div
           className={`watch-player ${loading ? 'is-resolving' : ''} ${watchPlayerError ? 'has-error' : ''}`}
         >
@@ -374,8 +384,21 @@ export default function Watch() {
 
           {loading ? (
             <div className="watch-player__loading-overlay">
-              <div className="spinner" />
-              {resolvingMessage ? <div className="resolving-msg">{resolvingMessage}</div> : null}
+              {ambientArt ? (
+                <div
+                  className="watch-player__backdrop"
+                  style={{ backgroundImage: `url(${ambientArt})` }}
+                  aria-hidden="true"
+                />
+              ) : null}
+              <div className="watch-player__loader">
+                <div className="player-spinner" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+                <div className="resolving-msg">{resolvingMessage || `Loading ${activeProvider.name}…`}</div>
+              </div>
             </div>
           ) : null}
 
@@ -396,12 +419,26 @@ export default function Watch() {
             </div>
           ) : null}
         </div>
+        </div>
 
         <div className="watch-meta">
+          <div className="watch-meta__eyebrow">
+            <span className="watch-live-dot" aria-hidden="true" />
+            Now Playing
+          </div>
           <h1 className="watch-meta__title">{getDisplayTitle(entry)}</h1>
-          <div className="watch-meta__info">
-            Episode {currentEpisode} of {totalLabel} / {currentLanguage.toUpperCase()} /{' '}
-            {activeProvider.name}
+          <div className="watch-meta__chips">
+            <span className="watch-chip watch-chip--ep">
+              Episode {currentEpisode}
+              {hasKnownEpisodeCount ? ` / ${totalLabel}` : ''}
+            </span>
+            <span className="watch-chip">{currentLanguage.toUpperCase()}</span>
+            <span className="watch-chip watch-chip--server">
+              <span className="watch-chip__dot" aria-hidden="true" />
+              {activeProvider.name}
+            </span>
+            {metaScore ? <span className="watch-chip watch-chip--score">{metaScore}</span> : null}
+            {entry.year ? <span className="watch-chip">{entry.year}</span> : null}
           </div>
           <details className="watch-help">
             <summary className="watch-help__summary">Video not playing in the player?</summary>

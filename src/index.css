@@ -1767,29 +1767,56 @@ a {
 
 .watch-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1fr) 340px;
   gap: var(--space-6);
   align-items: start;
 }
 
 .watch-main {
+  position: relative;
   min-width: 0;
+}
+
+/* Cinematic ambient glow cast by the title art behind the player */
+.watch-ambient {
+  position: absolute;
+  inset: -6% -5% auto -5%;
+  height: 72%;
+  z-index: 0;
+  background-size: cover;
+  background-position: center 18%;
+  filter: blur(80px) saturate(160%);
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.watch-stage {
+  position: relative;
+  z-index: 1;
+  padding: 5px;
+  border-radius: calc(var(--radius-2xl) + 5px);
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.015) 42%, rgba(255, 106, 61, 0.12));
+  box-shadow: var(--shadow-4);
 }
 
 .watch-player {
   position: relative;
   aspect-ratio: 16 / 9;
   overflow: hidden;
-  border-radius: var(--radius-xl);
-  background: #000;
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-4);
+  border-radius: var(--radius-2xl);
+  background: radial-gradient(circle at 50% 45%, #141418, #000 72%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.7);
 }
 
 .watch-player iframe {
   width: 100%;
   height: 100%;
   border: 0;
+  display: block;
+  /* Dark base so there's no white flash before a provider's page paints. */
+  background: #0a0a0c;
+  color-scheme: dark;
 }
 
 .watch-player__loading-overlay,
@@ -1799,55 +1826,182 @@ a {
   display: grid;
   place-items: center;
   align-content: center;
-  gap: var(--space-3);
+  gap: var(--space-4);
   padding: var(--space-5);
   text-align: center;
 }
 
 .watch-player__loading-overlay {
-  background: rgba(10, 10, 10, 0.88);
+  background: rgba(8, 8, 10, 0.55);
 }
 
 .watch-player__error-overlay {
-  background: rgba(10, 10, 10, 0.94);
+  background: rgba(8, 8, 10, 0.95);
+}
+
+.watch-player__backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-size: cover;
+  background-position: center;
+  filter: blur(26px) brightness(0.42) saturate(150%);
+  transform: scale(1.12);
+}
+
+.watch-player__loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.player-spinner {
+  display: inline-flex;
+  gap: 9px;
+}
+
+.player-spinner span {
+  width: 13px;
+  height: 13px;
+  border-radius: 999px;
+  background: var(--grad-brand);
+  box-shadow: var(--glow-ember);
+  animation: playerBounce 1s ease-in-out infinite;
+}
+
+.player-spinner span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.player-spinner span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes playerBounce {
+  0%, 80%, 100% {
+    transform: scale(0.45);
+    opacity: 0.45;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 .watch-player__error-icon {
-  width: 56px;
-  height: 56px;
+  width: 60px;
+  height: 60px;
   display: grid;
   place-items: center;
   border-radius: 999px;
-  border: 1px solid rgba(251, 44, 54, 0.26);
-  background: rgba(251, 44, 54, 0.12);
+  border: 1px solid rgba(251, 44, 54, 0.3);
+  background: rgba(251, 44, 54, 0.14);
   color: var(--error);
-  font-weight: 700;
+  font-size: 26px;
+  font-weight: 800;
 }
 
 .watch-player__error-title,
 .wo-panel__title {
-  font-size: 24px;
-  font-weight: 600;
+  font-size: 22px;
+  font-weight: 700;
   letter-spacing: -0.01em;
 }
 
 .resolving-msg {
-  color: var(--text-muted);
-  font-size: 14px;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
 }
 
 .watch-meta {
+  position: relative;
+  z-index: 1;
   margin-top: var(--space-5);
 }
 
-.watch-meta__title {
-  font-size: clamp(2rem, 3vw, 2.75rem);
-  font-weight: 700;
-  line-height: 1.1;
+.watch-meta__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ember-bright);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
-.watch-meta__info {
-  margin-top: var(--space-2);
+.watch-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--ember);
+  animation: livePulse 1.8s ease-out infinite;
+}
+
+@keyframes livePulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 106, 61, 0.5);
+  }
+  100% {
+    box-shadow: 0 0 0 10px rgba(255, 106, 61, 0);
+  }
+}
+
+.watch-meta__title {
+  margin-top: 10px;
+  font-size: clamp(2rem, 3vw, 2.9rem);
+  font-weight: 800;
+  line-height: 1.06;
+  letter-spacing: -0.03em;
+}
+
+.watch-meta__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: var(--space-3);
+}
+
+.watch-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 13px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
+  backdrop-filter: blur(8px);
+}
+
+.watch-chip--ep {
+  background: rgba(255, 106, 61, 0.14);
+  border-color: rgba(255, 138, 61, 0.34);
+  color: var(--ember-bright);
+}
+
+.watch-chip--score {
+  color: var(--gold);
+  border-color: rgba(245, 185, 66, 0.3);
+}
+
+.watch-chip--score::before {
+  content: '★';
+  font-size: 11px;
+}
+
+.watch-chip__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--success);
+  box-shadow: 0 0 8px var(--success);
 }
 
 .watch-help {
@@ -2157,7 +2311,10 @@ a {
 
 .watch-sidebar__title {
   padding: var(--space-4);
-  border-bottom: 1px solid rgba(223, 223, 223, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
 }
 
 .watch-sidebar__list {
@@ -2213,14 +2370,31 @@ a {
 }
 
 .ep-row:hover {
-  background: rgba(167, 139, 250, 0.08);
+  background: rgba(255, 255, 255, 0.06);
   color: var(--text);
 }
 
 .ep-row.is-current {
-  background: rgba(167, 139, 250, 0.14);
-  border-color: rgba(167, 139, 250, 0.28);
-  color: var(--accent);
+  position: relative;
+  background: rgba(255, 106, 61, 0.14);
+  border-color: rgba(255, 138, 61, 0.32);
+  color: var(--ember-bright);
+}
+
+.ep-row.is-current::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--grad-brand);
+}
+
+.ep-row.is-current .ep-row__number {
+  background: var(--grad-brand);
+  color: #fff;
 }
 
 .ep-row__number {
