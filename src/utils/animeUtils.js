@@ -279,40 +279,6 @@ export function sortCompletedEntries(entries) {
   return parsed.map(p => p.entry);
 }
 
-// kebab-case a title for slug-based embed providers (e.g. "One Piece" -> "one-piece").
-export function slugifyTitle(s) {
-  return _normTitle(s).replace(/\s+/g, "-");
-}
-
-/**
- * Ranked slug guesses for a library entry, used by slug-based providers that
- * address episodes as `{slug}-episode-{n}`. Tries romaji/english/synonyms, each
- * with and without the release year (some providers append it, some don't).
- */
-export function buildSlugCandidates(entry) {
-  const titles = [];
-  if (entry?.title) titles.push(entry.title);
-  if (entry?.titleEnglish) titles.push(entry.titleEnglish);
-  if (Array.isArray(entry?.synonyms)) titles.push(...entry.synonyms);
-
-  const year = entry?.year || 0;
-  const out = [];
-  const seen = new Set();
-  const add = (slug) => {
-    if (slug && slug.length >= 2 && !seen.has(slug)) {
-      seen.add(slug);
-      out.push(slug);
-    }
-  };
-
-  for (const title of titles) {
-    const base = slugifyTitle(title);
-    add(base);
-    if (year) add(`${base}-${year}`);
-  }
-  return out;
-}
-
 export function getCurrentSeason() {
   const m = new Date().getMonth();
   if (m < 3) return "WINTER";

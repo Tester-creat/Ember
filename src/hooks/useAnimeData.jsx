@@ -58,6 +58,7 @@ export function AnimeProvider({ children }) {
     const entryData = {
       id:              id,
       anilistId:       Number(id),
+      idMal:           source.idMal || (isUpdate ? existing.idMal : 0) || 0,
       title:           source.title || "",
       titleEnglish:    source.titleEnglish || "",
       cover:           source.cover || "",
