@@ -367,7 +367,7 @@ export default function Watch() {
               title={`${getDisplayTitle(entry)} episode ${currentEpisode} on ${activeProvider.name}`}
               allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
               allowFullScreen
-              referrerPolicy="no-referrer"
+              referrerPolicy="origin"
               data-watch-iframe
             />
           ) : null}
