@@ -435,23 +435,41 @@ export default function Watch() {
             Episode {currentEpisode} of {totalLabel} / {currentLanguage.toUpperCase()} /{' '}
             {activeProvider.name}
           </div>
-          <div className="watch-meta__info">
-            If the player opens but stays blank, switch provider. Some embeds load an error page
-            without reporting playback failure.
-            {embedUrl && !loading && !watchPlayerError ? (
-              <>
-                {' '}
+          <details className="watch-help">
+            <summary className="watch-help__summary">Video not playing in the player?</summary>
+            <div className="watch-help__body">
+              <p>
+                Sources are embedded from third-party sites. The player loads, but your
+                browser&apos;s tracking protection usually blocks the video <em>inside</em> the
+                frame. Turning it off for this site makes playback work right here in the page:
+              </p>
+              <ul>
+                <li>
+                  <strong>Firefox:</strong> click the shield icon in the address bar &rarr; turn{' '}
+                  <strong>Enhanced Tracking Protection OFF</strong> for this site &rarr; reload.
+                </li>
+                <li>
+                  <strong>Safari:</strong> Settings &rarr; Privacy &rarr; turn off{' '}
+                  <strong>Prevent Cross-Site Tracking</strong>.
+                </li>
+                <li>Pause ad-block / wallet extensions, or try a private window.</li>
+                <li>
+                  Still blank? Switch <strong>Server</strong> above — some sources don&apos;t carry
+                  every title.
+                </li>
+              </ul>
+              {embedUrl && !loading && !watchPlayerError ? (
                 <a
                   className="watch-open-link"
                   href={embedUrl}
                   target="_blank"
                   rel="noreferrer noopener"
                 >
-                  Open this server in a new tab ↗
+                  Last resort: open this source in a new tab &#8599;
                 </a>
-              </>
-            ) : null}
-          </div>
+              ) : null}
+            </div>
+          </details>
 
           <div className="watch-actions">
             <div className="watch-control">
