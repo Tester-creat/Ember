@@ -1,5 +1,5 @@
 
-import { normalizeAnime, scoreAnikotoTitleMatch, collectTitleNeedles, pickAnikotoEpisode } from './animeUtils';
+import { normalizeAnime } from './animeUtils';
 
 const ANILIST_API = "https://graphql.anilist.co";
 const MEDIA_CARD_FIELDS = `
@@ -46,9 +46,10 @@ export function buildMegaPlayAniListUrl(anilistId, ep, lang = 'sub') {
 export const STREAM_PROVIDERS = [
   {
     name: "MegaPlay",
-    isAnikoto: true,
-    buildUrl: (anikotoUrl) => anikotoUrl,
-    buildAniListUrl: buildMegaPlayAniListUrl,
+    // Direct AniList endpoint — MegaPlay resolves the series server-side, so no
+    // proxy/scan is needed (the old Anikoto pre-resolution depended on a CORS
+    // proxy that is no longer reliable).
+    buildUrl: (anilistId, ep, lang) => buildMegaPlayAniListUrl(anilistId, ep, lang),
   },
   {
     name: "VidNest",
@@ -90,10 +91,6 @@ export const STREAM_PROVIDERS = [
       return malId ? `https://vidlink.pro/anime/${malId}/${ep}/${sd(lang)}` : '';
     },
   },
-  {
-    name: "AnimeSuge",
-    buildUrl: (anilistId, ep) => `https://animesuge.to/embed/anilist/${anilistId}/${ep}`,
-  },
 ];
 
 
@@ -127,16 +124,11 @@ export async function anilistFetch(query, vars, timeoutMs = 10000) {
   return page?.media || [];
 }
 
-export function anikotoFetch(endpoint) {
-  const isLive = window.location.hostname.includes("github.io");
-  const url = isLive 
-    ? `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent('https://anikotoapi.site' + endpoint)}` 
-    : `/api/anikoto${endpoint}`;
-  return fetch(url);
-}
-
 export const SEARCH_QUERY = `query($search:String,$page:Int,$perPage:Int){Page(page:$page,perPage:$perPage){media(search:$search,type:ANIME,sort:POPULARITY_DESC){${MEDIA_CARD_FIELDS}}}}`;
 export const TRENDING_QUERY = `query($page:Int,$perPage:Int){Page(page:$page,perPage:$perPage){pageInfo{hasNextPage}media(type:ANIME,sort:[TRENDING_DESC,POPULARITY_DESC]){${MEDIA_CARD_FIELDS}}}}`;
+// Currently-airing anime by popularity — a clean "new / airing now" feed straight
+// from AniList (CORS-friendly), replacing the old proxy-dependent Anikoto feed.
+export const AIRING_QUERY = `query($page:Int,$perPage:Int){Page(page:$page,perPage:$perPage){pageInfo{hasNextPage}media(type:ANIME,status:RELEASING,sort:[POPULARITY_DESC]){${MEDIA_CARD_FIELDS}}}}`;
 
 export async function fetchTrendingAnimePage(page = 1, perPage = 30) {
   const pageData = await anilistPageFetch(TRENDING_QUERY, { page, perPage });
@@ -148,22 +140,13 @@ export async function fetchTrendingAnimePage(page = 1, perPage = 30) {
   };
 }
 
-export async function fetchRecentAnimePage(page = 1, perPage = 50) {
-  const res = await anikotoFetch(`/recent-anime?page=${page}&per_page=${perPage}`);
-  if (!res.ok) {
-    throw new Error(`Recent anime request failed: HTTP ${res.status}`);
-  }
-
-  const json = await res.json();
-  const list = Array.isArray(json?.data) ? json.data : [];
-  const results = list
-    .map((item) => normalizeAnime({ ...item, id: item.ani_id }))
-    .filter(Boolean);
-
+export async function fetchRecentAnimePage(page = 1, perPage = 30) {
+  const pageData = await anilistPageFetch(AIRING_QUERY, { page, perPage });
+  const results = (pageData?.media || []).map(normalizeAnime).filter(Boolean);
   return {
     results,
     page,
-    hasMore: results.length >= perPage,
+    hasMore: Boolean(pageData?.pageInfo?.hasNextPage),
   };
 }
 
@@ -214,99 +197,4 @@ export async function fetchWatchOrder(anilistId) {
     console.error("fetchWatchOrder error:", err);
     throw err;
   }
-}
-
-// --- Anikoto Resolution Logic ---
-
-const ANIKOTO_MAPPING_KEY = "anikoto_mapping_v1";
-
-function getStoredMapping() {
-  try {
-    return JSON.parse(localStorage.getItem(ANIKOTO_MAPPING_KEY)) || {};
-  } catch { return {}; }
-}
-
-function saveMapping(mapping) {
-  localStorage.setItem(ANIKOTO_MAPPING_KEY, JSON.stringify(mapping));
-}
-
-export async function resolveAnikotoSeries(anilistId, animeContext) {
-  const mapping = getStoredMapping();
-  if (mapping[anilistId]) return mapping[anilistId];
-
-  console.log(`[Anikoto] Resolving series for AniList ID: ${anilistId}`);
-  const needles = collectTitleNeedles(animeContext);
-  
-  // Strategy 1: Scan recent pages (Deep Pagination Scanning)
-  // We'll scan up to 20 pages by default, which covers most recent/semi-old anime.
-  // For truly legacy anime, we'll continue if nothing is found.
-  let page = 1;
-  const maxPages = 50; // Deep scan limit
-
-  while (page <= maxPages) {
-    try {
-      const res = await anikotoFetch(`/recent-anime?page=${page}`);
-      if (!res.ok) break;
-      const data = await res.json();
-      const list = data.data || [];
-      if (!list.length) break;
-
-      // Try exact AniList ID match first
-      let found = list.find(item => String(item.ani_id) === String(anilistId) || String(item.mal_id) === String(animeContext?.idMal));
-      
-      if (!found) {
-        // Fallback to fuzzy title match
-        const scored = list.map(item => ({
-          item,
-          score: scoreAnikotoTitleMatch(item, needles)
-        })).filter(x => x.score > 70)
-           .sort((a, b) => b.score - a.score);
-        
-        if (scored.length > 0) {
-          found = scored[0].item;
-        }
-      }
-
-      if (found) {
-        console.log(`[Anikoto] Found match on page ${page}: ${found.title} (ID: ${found.id})`);
-        mapping[anilistId] = { id: found.id, title: found.title };
-        saveMapping(mapping);
-        return mapping[anilistId];
-      }
-
-      page++;
-      // Performance: If we've scanned 10 pages and haven't found anything, log progress
-      if (page % 10 === 0) console.log(`[Anikoto] Scanned ${page} pages...`);
-    } catch (e) {
-      console.error(`[Anikoto] Error on page ${page}:`, e);
-      break;
-    }
-  }
-
-  throw new Error(`Could not resolve Anikoto series ID after scanning ${maxPages} recent pages`);
-}
-
-const SERIES_CACHE = new Map();
-
-export async function fetchAnikotoEpisode(seriesId, epNum, lang = 'sub') {
-  let data;
-  if (SERIES_CACHE.has(seriesId)) {
-    data = SERIES_CACHE.get(seriesId);
-  } else {
-    const res = await anikotoFetch(`/series/${seriesId}`);
-    if (!res.ok) throw new Error(`Anikoto series fetch failed: ${res.status}`);
-    data = await res.json();
-    SERIES_CACHE.set(seriesId, data);
-  }
-
-  const episodes = data.data?.episodes || [];
-  const ep = pickAnikotoEpisode(episodes, epNum);
-  if (!ep) throw new Error(`Episode ${epNum} not found in Anikoto`);
-
-  const embedUrl = ep.embed_url?.[lang] || ep.embed_url?.['sub'] || ep.embed_url?.['dub'];
-  if (typeof embedUrl !== 'string' || embedUrl.trim() === '') {
-    throw new Error(`No ${lang} embed found for episode ${epNum}`);
-  }
-
-  return embedUrl.trim();
 }

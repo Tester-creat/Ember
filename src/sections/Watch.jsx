@@ -1,13 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import CoverArt from '../components/CoverArt';
 import { useAnimeData } from '../hooks/useAnimeData';
-import {
-  buildMegaPlayAniListUrl,
-  fetchAnikotoEpisode,
-  fetchWatchOrder,
-  resolveAnikotoSeries,
-  STREAM_PROVIDERS,
-} from '../utils/api';
+import { fetchWatchOrder, STREAM_PROVIDERS } from '../utils/api';
 import {
   formatSortRank,
   getDisplayTitle,
@@ -136,39 +130,13 @@ export default function Watch() {
       try {
         const provider = STREAM_PROVIDERS[currentProvider % STREAM_PROVIDERS.length];
 
-        if (provider.isAnikoto) {
-          setResolvingMessage('Searching Anikoto catalog...');
-          try {
-            const series = await resolveAnikotoSeries(entry.anilistId, entry);
-            setResolvingMessage(`Loading ${series.title} from MegaPlay...`);
-            const url = await fetchAnikotoEpisode(series.id, currentEpisode, currentLanguage);
-
-            if (typeof url !== 'string' || url.trim() === '') {
-              console.warn(
-                '[Watch] MegaPlay returned an empty embed URL. Falling back to the direct AniList endpoint.'
-              );
-              setEmbedUrl(buildMegaPlayAniListUrl(entry.anilistId, currentEpisode, currentLanguage));
-              return;
-            }
-
-            setEmbedUrl(url.trim());
-          } catch (anikotoError) {
-            console.warn(
-              '[Watch] Anikoto resolution failed, attempting MegaPlay direct AniList fallback...',
-              anikotoError
-            );
-            setResolvingMessage('Primary source unavailable, trying direct AniList fallback...');
-            setEmbedUrl(buildMegaPlayAniListUrl(entry.anilistId, currentEpisode, currentLanguage));
-          }
-        } else {
-          setResolvingMessage(`Loading from ${provider.name}...`);
-          const url = provider.buildUrl(entry.anilistId, currentEpisode, currentLanguage, entry);
-          if (typeof url !== 'string' || url.trim() === '') {
-            cycleProvider(`${provider.name} returned an empty URL`);
-            return;
-          }
-          setEmbedUrl(url.trim());
+        setResolvingMessage(`Loading from ${provider.name}...`);
+        const url = provider.buildUrl(entry.anilistId, currentEpisode, currentLanguage, entry);
+        if (typeof url !== 'string' || url.trim() === '') {
+          cycleProvider(`${provider.name} returned an empty URL`);
+          return;
         }
+        setEmbedUrl(url.trim());
       } catch (error) {
         setWatchPlayerError({ provider: 'Provider', message: error.message });
       } finally {

@@ -125,7 +125,7 @@ export default function Browse({ onOpenDetail }) {
               className={`pill-btn ${browseData.mode === 'recent' ? 'is-active' : ''}`}
               onClick={() => switchMode('recent')}
             >
-              Recently Added
+              Airing Now
             </button>
           </div>
         </div>
